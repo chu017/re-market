@@ -1,0 +1,10 @@
+// Cloudflare Workers static-assets deploy (`npx wrangler deploy`). `npm run build` must run first to fill dist/.
+// dist/_redirects sends "/" to /dashboard/ and dist/_headers keeps the data files uncached.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "re-market",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}

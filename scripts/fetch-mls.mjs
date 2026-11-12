@@ -32,7 +32,7 @@ const { values: args } = parseArgs({
 loadEnv();
 const { MLS_API_BASE: base, MLS_ACCESS_TOKEN: token } = process.env;
 if (!base || !token) {
-  console.error('MLS_API_BASE and MLS_ACCESS_TOKEN must be set in .env.');
+  console.error('MLS_API_BASE and MLS_ACCESS_TOKEN must be set as environment variables (or in .env when running locally).');
   process.exit(1);
 }
 warnIfTokenExpiring(token);
