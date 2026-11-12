@@ -120,6 +120,25 @@
     </article>
   </section>
 
+  <section class="card zip-card">
+    <div class="card-title spread">
+      <span class="icon-tile" data-icon="pin"></span>
+      <div><h2 id="zip-title">By zip code — year over year</h2><p class="card-sub"><span id="zip-sub"></span> <span id="zip-hint"></span></p></div>
+      <div class="seg" role="group" aria-label="Group table by">
+        <button type="button" data-group="zip" aria-pressed="true">Zip code</button>
+        <button type="button" data-group="city" aria-pressed="false">City</button>
+      </div>
+      <input type="search" id="t-search" placeholder="Search zip or city" aria-label="Search zip or city">
+    </div>
+    <div class="table-wrap scroll">
+      <table class="data-table" id="zip-table">
+        <thead><tr id="zip-head"></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="card-sub">YoY is shown only when both periods have at least 3 sales.</p>
+  </section>
+
   <!-- Local-only: shown only when opened from file:// or localhost with data/history.js present. -->
   <section class="card history-card" id="history-card" hidden>
     <div class="card-title">
@@ -192,25 +211,6 @@
       </details>
     </div>
     <p class="card-sub" id="hist-empty" hidden>No history data yet. Run <code>npm run fetch:history</code> (about 15 minutes the first time), then reload.</p>
-  </section>
-
-  <section class="card zip-card">
-    <div class="card-title spread">
-      <span class="icon-tile" data-icon="pin"></span>
-      <div><h2 id="zip-title">By zip code — year over year</h2><p class="card-sub"><span id="zip-sub"></span> <span id="zip-hint"></span></p></div>
-      <div class="seg" role="group" aria-label="Group table by">
-        <button type="button" data-group="zip" aria-pressed="true">Zip code</button>
-        <button type="button" data-group="city" aria-pressed="false">City</button>
-      </div>
-      <input type="search" id="t-search" placeholder="Search zip or city" aria-label="Search zip or city">
-    </div>
-    <div class="table-wrap scroll">
-      <table class="data-table" id="zip-table">
-        <thead><tr id="zip-head"></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <p class="card-sub">YoY is shown only when both periods have at least 3 sales.</p>
   </section>
 
   <footer id="notes"></footer>
