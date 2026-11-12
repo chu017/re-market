@@ -729,7 +729,10 @@
       homeName = 'FHFA HPI';
       homeSource = h ? `FHFA All-Transactions HPI, ${hpiCounty} County (${h.series})` : 'FHFA HPI';
       homeFmt = (v) => (v == null ? '–' : v.toFixed(1));
-      if (!hpiCounty) notices.push(['warn', 'FHFA HPI is published per county and there is no Bay Area composite. Select a county in the County filter to compare it.']);
+      if (!hpiCounty) {
+        const options = counties.filter((c) => H.hpi?.[c]).map((c) => `<button type="button" class="pick" data-pick-county="${c}">${c}</button>`).join('');
+        notices.push(['warn', `FHFA HPI is published per county — there is no Bay Area-wide index. Pick a county to compare: <span class="picks">${options}</span>`]);
+      }
       else if (!h) notices.push(['warn', `No FHFA HPI series is available for ${hpiCounty}.`]);
       if (h) {
         const last = Math.max(...Object.keys(h.values).map(Number));
@@ -771,13 +774,17 @@
     const tile = (label, color, value, lines) => `<div class="vs-tile"><div class="label">${color ? `<i style="background:${color}"></i>` : ''}${label}</div>
       <div class="value">${value}</div>${lines.map((l) => `<div class="delta">${l}</div>`).join('')}</div>`;
     $('#vs-tiles').innerHTML =
-      tile(`Home price change · ${home.baseYear ?? baseYear}–${hEnd?.year ?? '–'}`, blue, hEnd ? cumText(hEnd.index) : 'n/a',
-        [hCagr != null ? `${pctN(hCagr)} per year (annualized)` : 'Annualized growth: n/a', `${homeName}${hstate.home === 'hpi' ? '' : ' · reflects sales mix'}`])
+      (hEnd
+        ? tile(`Home price change · ${home.baseYear}–${hEnd.year}`, blue, cumText(hEnd.index),
+          [hCagr != null ? `${pctN(hCagr)} per year (annualized)` : 'Annualized growth: needs 2+ full years', `${homeName}${hstate.home === 'hpi' ? ` · ${hpiCounty} County` : ' · reflects sales mix'}`])
+        : tile('Home price change', blue, hstate.home === 'hpi' && !hpiCounty ? 'Pick a county' : 'No data',
+          [hstate.home === 'hpi' ? 'FHFA HPI is county-level' : 'No sales for the current filters', 'Use the buttons above or the County filter']))
       + tile(`SPY ${spyCol ? 'total return level' : 'price change'} · ${baseYear}–${sSame?.year ?? sEnd?.year ?? '–'}`, orange, sSame ? cumText(sSame.index) : sEnd ? cumText(sEnd.index) : 'n/a',
         [sCagrSame != null ? `${pctN(sCagrSame)} per year (annualized)` : sCagr != null ? `${pctN(sCagr)} per year` : '–', spyCol ? 'Dividends included (reinvested)' : 'Price only · dividends not included'])
-      + tile('Performance gap', null, hCagr != null && sCagrSame != null ? `${((sCagrSame - hCagr) * 100).toFixed(1)} pt/yr` : 'n/a',
-        [hEnd && sSame ? `${sCagrSame > hCagr ? 'SPY' : 'Homes'} ahead · index ${idxText(sSame.index)} vs ${idxText(hEnd.index)} (${(sSame.index / hEnd.index).toFixed(2)}×)` : 'Needs full-year data on both sides',
-          'Price levels, yearly averages, same years']);
+      + (hCagr != null && sCagrSame != null
+        ? tile('Performance gap', null, `${((sCagrSame - hCagr) * 100).toFixed(1)} pt/yr`,
+          [`${sCagrSame > hCagr ? 'SPY' : 'Homes'} ahead · index ${idxText(sSame.index)} vs ${idxText(hEnd.index)} (${(sSame.index / hEnd.index).toFixed(2)}×)`, 'Price levels, yearly averages, same years'])
+        : tile('Performance gap', null, '—', ['Shown once both sides have full-year data', 'Price levels, yearly averages, same years']));
 
     // Chart + table
     let labels, hSeries, sSeries, hollow, describe, defaultIdx;
@@ -893,8 +900,14 @@
   }
 
   function renderNotices(list) {
-    $('#hist-notices').innerHTML = list.map(([kind, text]) => `<li class="${kind}">${text}</li>`).join('');
+    $('#hist-notices').innerHTML = list.map(([kind, html]) => `<li class="${kind}">${html}</li>`).join('');
   }
+  $('#hist-notices').addEventListener('click', (e) => {
+    const county = e.target.closest('[data-pick-county]')?.dataset.pickCounty;
+    if (!county) return;
+    Object.assign(state, { county, city: '', zip: '' });
+    render();
+  });
   for (const [attr, key] of [['hmode', 'mode'], ['hhome', 'home'], ['hspy', 'spy'], ['hgrain', 'grain']]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
       btn.addEventListener('click', () => {
