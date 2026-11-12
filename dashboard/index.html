@@ -120,6 +120,41 @@
     </article>
   </section>
 
+  <!-- Local-only: shown only when opened from file:// or localhost with data/history.js present. -->
+  <section class="card history-card" id="history-card" hidden>
+    <div class="card-title spread">
+      <span class="icon-tile" data-icon="history"></span>
+      <div>
+        <h2>Long-term history <span class="local-badge" title="data/history.js stays on this computer and is never part of the online site">Local only</span></h2>
+        <p class="card-sub" id="hist-sub"></p>
+      </div>
+      <div class="seg" role="group" aria-label="History metric">
+        <button type="button" data-hmetric="median" aria-pressed="true">Median price</button>
+        <button type="button" data-hmetric="avg" aria-pressed="false">Avg price</button>
+        <button type="button" data-hmetric="count" aria-pressed="false">Closed sales</button>
+      </div>
+      <div class="seg" role="group" aria-label="History granularity">
+        <button type="button" data-hgrain="month" aria-pressed="true">Monthly</button>
+        <button type="button" data-hgrain="year" aria-pressed="false">Yearly</button>
+      </div>
+    </div>
+    <div id="hist-body">
+      <div class="readout" id="hist-readout" aria-live="polite"></div>
+      <div class="chart-box tall"><canvas id="hist-chart" role="img" aria-label="Long-term history chart"></canvas></div>
+      <div class="rate-strip" id="hist-rate-strip">
+        <p class="rate-head">30-yr mortgage rate <span id="hist-rate-sub">· monthly average</span></p>
+        <div class="rate-box"><canvas id="hist-rate" role="img" aria-label="30-year mortgage rate, long-term"></canvas></div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="hist-table">
+          <thead><tr><th>Year</th><th>Sales</th><th>Sales YoY</th><th>Median</th><th>Median YoY</th><th>Avg Price</th><th>Avg YoY</th><th>30-yr Rate</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <p class="card-sub" id="hist-empty" hidden>No history data yet. Run <code>npm run fetch:history</code> (about 15 minutes the first time), then reload.</p>
+  </section>
+
   <section class="card zip-card">
     <div class="card-title spread">
       <span class="icon-tile" data-icon="pin"></span>

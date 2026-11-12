@@ -287,3 +287,14 @@ body.tv .rate-chg { font-size: 0.8em; }
 .period-bar .seg button { padding: 7px 14px; font-size: 14px; }
 .period-label { margin: 0; color: var(--text-2); font-size: 14px; }
 .period-label b { color: var(--text); font-weight: 600; }
+
+/* local-only long-term history */
+.history-card { margin-top: 16px; }
+.local-badge {
+  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 6px; vertical-align: middle;
+  font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--warn-ink); background: var(--warn-bg);
+}
+.chart-box.tall { height: 320px; }
+#hist-table { margin-top: 16px; }
+#hist-table th:first-child, #hist-table td:first-child { text-align: left; }
+.history-card code { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--tint); }

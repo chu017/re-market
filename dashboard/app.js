@@ -17,6 +17,7 @@
     pin: '<path d="M20 10c0 5-5.5 10.2-7.4 11.8a1 1 0 0 1-1.2 0C9.5 20.2 4 15 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
     tv: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
     exit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/>',
     check: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m8 12.5 2.8 2.8L16.5 9.5" stroke="#fff" stroke-width="2.4"/>',
   };
   const icon = (name) =>
@@ -175,7 +176,7 @@
       ctx.textBaseline = 'bottom';
       chart.getDatasetMeta(0).data.forEach((bar, i) => {
         const v = chart.data.datasets[0].data[i];
-        if (v && (!opts.every || i % opts.every === 0 || i === chart.data.labels.length - 1)) ctx.fillText(num(v), bar.x, bar.y - 4);
+        if (v && (!opts.every || i % opts.every === 0 || i === chart.data.labels.length - 1)) ctx.fillText((opts.fmt ?? num)(v), bar.x, bar.y - 4);
       });
       ctx.restore();
     },
@@ -234,7 +235,7 @@
   };
   const yAxisWidth = () => (isTV() ? 86 : 58);
 
-  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, labelFmt }) {
+  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, labelFmt, dense = false, xTick, xOffset = false }) {
     group.ids.add(id);
     const vals = [...cur, ...prior].filter((v) => v != null);
     const stripRange = strip && vals.length
@@ -243,7 +244,7 @@
     const blue = css('--series-1'), gray = css('--series-prior'), surface = css('--surface');
     const line = (label, data, color, fill) => ({
       label, data, borderColor: color, backgroundColor: color, borderWidth: isTV() ? 3.5 : 2, tension: 0.3, spanGaps: false,
-      pointRadius: (strip ? 3 : 4) * (isTV() ? 1.6 : 1), pointHoverRadius: (strip ? 5 : 6) * (isTV() ? 1.5 : 1), pointBackgroundColor: color, pointBorderColor: surface, pointBorderWidth: 2,
+      pointRadius: dense ? 0 : (strip ? 3 : 4) * (isTV() ? 1.6 : 1), pointHoverRadius: (strip ? 5 : 6) * (isTV() ? 1.5 : 1), pointBackgroundColor: color, pointBorderColor: surface, pointBorderWidth: 2,
       pointHoverBorderWidth: 2, borderCapStyle: 'round', borderJoinStyle: 'round',
       fill: fill && !strip ? 'origin' : false,
       ...(fill && !strip && {
@@ -268,7 +269,7 @@
         interaction: { mode: 'index', intersect: false },
         scales: {
           // The strip sits under a chart with the same months, so it skips its own month labels.
-          x: { grid: { display: false }, border: { color: css('--axis') }, ticks: { display: !strip, maxRotation: 0, autoSkipPadding: 10 } },
+          x: { offset: xOffset, grid: { display: false }, border: { color: css('--axis') }, ticks: { display: !strip, maxRotation: 0, autoSkipPadding: 10, ...(xTick && { autoSkip: false, callback: xTick }) } },
           y: {
             grace: strip ? 0 : '8%', border: { display: false }, ...stripRange,
             ticks: { callback: axisFmt, maxTicksLimit: strip ? 5 : 7, ...(strip && { stepSize: 1 }) },
@@ -663,6 +664,142 @@
   );
   $('#t-search').addEventListener('input', (e) => { state.search = e.target.value; renderZipTable(); });
 
+  // ---------- long-term history (local only) ----------
+  // data/history.js is never deployed: build-site.mjs doesn't copy it, and it's only requested when the
+  // page is opened from this computer.
+  const IS_LOCAL = location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const hstate = { metric: 'median', grain: 'month' };
+  let H = null;
+  if (IS_LOCAL) {
+    const tag = document.createElement('script');
+    tag.src = '../data/history.js';
+    tag.onload = () => { H = window.HISTORY_DATA ?? null; renderHistory(); };
+    tag.onerror = () => renderHistory();
+    document.head.appendChild(tag);
+  }
+  const MON_LONG = (ym) => `${MON[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
+
+  function renderHistory() {
+    if (!IS_LOCAL) return;
+    $('#history-card').hidden = false;
+    $('#hist-body').hidden = !H;
+    $('#hist-empty').hidden = !!H;
+    if (!H) return;
+
+    // Filter the flat [zip, month, type, $K] quads with the dashboard filters.
+    const okZip = H.zips.map(([zip, city, county]) =>
+      (!state.county || county === state.county) && (!state.city || city === state.city) && (!state.zip || zip === state.zip));
+    const okType = H.types.map((t) => !state.type || state.type.split('|').includes(t));
+    const byMonth = H.months.map(() => []);
+    const R = H.rows;
+    for (let i = 0; i < R.length; i += 4) if (okZip[R[i]] && okType[R[i + 2]]) byMonth[R[i + 1]].push(R[i + 3] * 1000);
+
+    const lastMonth = H.months.at(-1);
+    const partialMonth = H.through.slice(0, 7) === lastMonth && H.through < `${lastMonth}-28`;
+    const agg = { median, avg: mean, count: (p) => p.length }[hstate.metric];
+    const fmt = hstate.metric === 'count' ? num : money;
+    const axis = hstate.metric === 'count' ? (v) => num(v) : tick;
+    const metricName = { median: 'Median sale price', avg: 'Average sale price', count: 'Closed sales' }[hstate.metric];
+    const total = byMonth.reduce((a, m) => a + m.length, 0);
+    const blue = css('--series-1');
+
+    // Years: the running year is year-to-date; its YoY compares the same complete months.
+    const years = [...new Set(H.months.map((m) => m.slice(0, 4)))];
+    const lastFullIdx = partialMonth ? H.months.length - 2 : H.months.length - 1;
+    const yearPrices = (y, uptoMonth = 12) => H.months.flatMap((m, i) => (m.startsWith(y) && +m.slice(5, 7) <= uptoMonth ? byMonth[i] : []));
+    const curYear = years.at(-1);
+    const ytdMonths = +H.months[lastFullIdx].slice(5, 7) * (H.months[lastFullIdx].startsWith(curYear) ? 1 : 0);
+    const yearRows = years.map((y, i) => {
+      const p = yearPrices(y);
+      const isYTD = y === curYear && (ytdMonths < 12 || partialMonth);
+      // Compare the running year against the same complete months of the prior year.
+      const cmpCur = isYTD ? yearPrices(y, ytdMonths) : p;
+      const cmpPrev = i ? yearPrices(years[i - 1], isYTD ? ytdMonths : 12) : [];
+      const rateVals = H.months.filter((m) => m.startsWith(y)).map((m) => H.rates[m]).filter((v) => v != null);
+      return {
+        y, isYTD, n: p.length, median: median(p), avg: p.length ? mean(p) : null, rate: rateVals.length ? mean(rateVals) : null,
+        nYoY: cmpPrev.length ? yoy(cmpCur.length, cmpPrev.length) : null,
+        medYoY: cmpPrev.length ? yoy(median(cmpCur), median(cmpPrev)) : null,
+        avgYoY: cmpPrev.length ? yoy(mean(cmpCur), mean(cmpPrev)) : null,
+        value: p.length ? agg(p) : null,
+      };
+    });
+
+    $('#hist-sub').textContent = `${metricName} since ${MON_LONG(H.months[0])} · ${num(total)} sales for the current filters. `
+      + 'Stored only on this computer and not part of the online site.';
+    $('#hist-rate-sub').textContent = hstate.grain === 'month' ? '· monthly average' : '· yearly average';
+
+    if (hstate.grain === 'month') {
+      // The running month is incomplete, so the series stops at the last full month.
+      const vals = byMonth.map((p, i) => (i <= lastFullIdx && p.length ? agg(p) : null));
+      const rates = H.months.map((m) => H.rates[m] ?? null);
+      const labels = H.months;
+      const yearTick = (_, i) => (labels[i]?.endsWith('-01') ? labels[i].slice(0, 4) : '');
+      const group = readoutGroup($('#hist-readout'), (i, isDefault) => {
+        const m = labels[i], prevIdx = i - 12;
+        const d = prevIdx >= 0 ? yoy(vals[i], vals[prevIdx]) : null;
+        return `<span class="ro-title">${MON_LONG(m)}</span>`
+          + roKey(blue, metricName, vals[i] != null ? fmt(vals[i]) : i > lastFullIdx ? 'month in progress' : '–')
+          + (d != null ? `${pill(d)}<span>vs ${MON_LONG(labels[prevIdx])}</span>` : '')
+          + `<span class="ro-rate">${num(byMonth[i].length)} sales${rates[i] != null ? ` · 30-yr rate <b>${rate(rates[i])}</b>` : ''}</span>`
+          + roHint(isDefault);
+      }, lastFullIdx);
+      lineChart('hist-chart', labels, vals, labels.map(() => null), { curLabel: metricName, priorLabel: '', axisFmt: axis, group, dense: true, xTick: yearTick });
+      lineChart('hist-rate', labels, rates, labels.map(() => null), { curLabel: '30-yr rate', priorLabel: '', axisFmt: (v) => `${+v}%`, group, strip: true, dense: true, xTick: yearTick });
+      showReadout(group, null, null);
+    } else {
+      const labels = yearRows.map((r) => (r.isYTD ? `${r.y} YTD` : r.y));
+      const vals = yearRows.map((r) => r.value);
+      const group = readoutGroup($('#hist-readout'), (i, isDefault) => {
+        const r = yearRows[i];
+        const d = { median: r.medYoY, avg: r.avgYoY, count: r.nYoY }[hstate.metric];
+        return `<span class="ro-title">${labels[i]}</span>`
+          + roKey(blue, metricName, vals[i] != null ? fmt(vals[i]) : '–')
+          + (d != null ? `${pill(d)}<span>${r.isYTD ? `vs same ${ytdMonths} months of ${+r.y - 1}` : `vs ${+r.y - 1}`}</span>` : '')
+          + `<span class="ro-rate">${num(r.n)} sales${r.rate != null ? ` · 30-yr rate <b>${rate(r.rate)}</b>` : ''}</span>`
+          + roHint(isDefault);
+      }, yearRows.length - 1);
+      group.ids.add('hist-chart');
+      draw('hist-chart', {
+        type: 'bar',
+        data: { labels, datasets: [{ data: vals, backgroundColor: blue, hoverBackgroundColor: blue, borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: 'bottom', barPercentage: 0.7, categoryPercentage: 1, maxBarThickness: 48 }] },
+        plugins: [barTopLabels],
+        options: {
+          maintainAspectRatio: false, animation: false, layout: { padding: { top: 22 } },
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { grid: { display: false }, border: { color: css('--axis') } },
+            y: { beginAtZero: true, border: { display: false }, ticks: { callback: axis, maxTicksLimit: 7 }, afterFit: (s) => { s.width = yAxisWidth(); } },
+          },
+          plugins: {
+            legend: { display: false },
+            barTopLabels: { fmt: hstate.metric === 'count' ? num : tick },
+            tooltip: { enabled: false, external: ({ chart, tooltip }) => showReadout(group, chart, tooltip.opacity === 0 || !tooltip.dataPoints?.length ? null : tooltip.dataPoints[0].dataIndex) },
+          },
+        },
+      });
+      lineChart('hist-rate', labels, yearRows.map((r) => r.rate), labels.map(() => null), {
+        curLabel: '30-yr rate', priorLabel: '', axisFmt: (v) => `${+v}%`, group, strip: true, labelFmt: (v) => v.toFixed(2), xOffset: true,
+      });
+      showReadout(group, null, null);
+    }
+
+    $('#hist-table tbody').innerHTML = [...yearRows].reverse().map((r) => `<tr>
+      <td>${r.isYTD ? `<span class="chip">${r.y} YTD</span>` : r.y}</td>
+      <td>${num(r.n)}</td><td>${pill(r.nYoY)}</td><td>${money(r.median)}</td><td>${pill(r.medYoY)}</td>
+      <td>${money(r.avg)}</td><td>${pill(r.avgYoY)}</td><td>${rate(r.rate)}</td></tr>`).join('');
+  }
+  for (const [attr, key] of [['hmetric', 'metric'], ['hgrain', 'grain']]) {
+    document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
+      btn.addEventListener('click', () => {
+        hstate[key] = btn.dataset[attr];
+        document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        applyChartDefaults();
+        renderHistory();
+      }),
+    );
+  }
+
   // ---------- period toggle ----------
   function renderPeriodLabels() {
     const label = `${rangeText(period.cur)} vs. ${rangeText(period.prior)}`;
@@ -692,6 +829,7 @@
     renderWeekly(rows);
     renderDist(rows);
     renderZipTable();
+    if (H) renderHistory();
   }
 
   const updated = new Date(DATA.generatedAt);
