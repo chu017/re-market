@@ -104,5 +104,81 @@
     });
   }
 
-  root.VsCalc = { mean, median, lastCompleteMonth, yearWindows, samePeriodLastYear, indexOf, cagr, annualLevels, pointIndex, calendarReturns };
+  // ---------- buyer-owner real estate estimate ----------
+
+  /** Monthly payment on a fixed-rate loan. `annualRate` as a fraction (0.0385). */
+  function mortgagePayment(principal, annualRate, years = 30) {
+    const n = years * 12, i = annualRate / 12;
+    if (!(principal > 0)) return 0;
+    return i === 0 ? principal / n : (principal * i) / (1 - Math.pow(1 + i, -n));
+  }
+
+  /** Remaining balance after `paid` monthly payments. */
+  function loanBalance(principal, annualRate, paid, years = 30) {
+    const n = years * 12, i = annualRate / 12;
+    if (!(principal > 0) || paid >= n) return 0;
+    if (i === 0) return principal * (1 - paid / n);
+    const pmt = mortgagePayment(principal, annualRate, years);
+    return principal * Math.pow(1 + i, paid) - (pmt * (Math.pow(1 + i, paid) - 1)) / i;
+  }
+
+  /** Annual internal rate of return for yearly cash flows [t0, t1, ...]; null if no sign change. */
+  function irr(flows) {
+    const npv = (r) => flows.reduce((a, cf, t) => a + cf / Math.pow(1 + r, t), 0);
+    let lo = -0.99, hi = 1;
+    while (npv(hi) > 0 && hi < 1e3) hi *= 2;
+    if (npv(lo) * npv(hi) > 0) return null;
+    for (let k = 0; k < 200; k++) {
+      const mid = (lo + hi) / 2;
+      if (npv(lo) * npv(mid) <= 0) hi = mid;
+      else lo = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  /**
+   * Estimated return for someone who buys a home and lives in it, as an investment.
+   * values: home value at purchase and at the end of each year [V0, V1, ..., VN] (N years held).
+   * rate: mortgage rate at purchase (fraction). a: assumptions (fractions):
+   *   down, buyCost, sellCost, taxRate (of purchase price), taxGrowth (Prop 13 cap), insRate,
+   *   maintRate (of value), rentYield (rent saved, of value).
+   * Year t flow = rent saved − (P&I + property tax + insurance + maintenance), using the average of
+   * the start and end value for that year. At the end: sale price − selling costs − loan balance.
+   * Ignores income-tax effects (mortgage interest deduction, capital-gains exclusion), HOA and
+   * refinancing.
+   */
+  function ownerReturn(values, rate, a) {
+    const N = values.length - 1;
+    if (N < 1 || !(values[0] > 0) || values.some((v) => !(v > 0)) || !(rate >= 0)) return null;
+    const P0 = values[0];
+    const loan = P0 * (1 - a.down);
+    const pi = mortgagePayment(loan, rate) * 12;
+    const initial = P0 * a.down + P0 * a.buyCost;
+    const flows = [-initial];
+    const totals = { mortgage: 0, tax: 0, insurance: 0, maintenance: 0, rent: 0 };
+    for (let t = 1; t <= N; t++) {
+      const avgV = (values[t - 1] + values[t]) / 2;
+      const tax = P0 * a.taxRate * Math.pow(1 + a.taxGrowth, t - 1);
+      const ins = avgV * a.insRate, maint = avgV * a.maintRate, rent = avgV * a.rentYield;
+      totals.mortgage += pi; totals.tax += tax; totals.insurance += ins; totals.maintenance += maint; totals.rent += rent;
+      flows.push(rent - pi - tax - ins - maint);
+    }
+    const balance = loanBalance(loan, rate, N * 12);
+    const saleNet = values[N] * (1 - a.sellCost) - balance;
+    // Cash put in (down payment, buying costs, yearly shortfalls) vs cash taken out (yearly
+    // surpluses, sale proceeds); before adding the sale to the last year's flow.
+    const ops = flows.slice(1);
+    const invested = initial + ops.reduce((s, cf) => s + Math.max(0, -cf), 0);
+    const received = ops.reduce((s, cf) => s + Math.max(0, cf), 0) + saleNet;
+    flows[N] += saleNet;
+    return {
+      years: N, purchase: P0, sale: values[N], loan, balance, initial, saleNet, flows, totals,
+      irr: irr(flows), multiple: invested > 0 ? received / invested : null, invested,
+    };
+  }
+
+  root.VsCalc = {
+    mean, median, lastCompleteMonth, yearWindows, samePeriodLastYear, indexOf, cagr, annualLevels, pointIndex, calendarReturns,
+    mortgagePayment, loanBalance, irr, ownerReturn,
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

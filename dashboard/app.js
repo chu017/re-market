@@ -671,6 +671,11 @@
   const IS_LOCAL = location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   const V = window.VsCalc;
   const hstate = { mode: 'price', home: 'avg', spy: 'price', grain: 'year' };
+  // Buyer-owner assumptions, in percent. Defaults: 20% down, Bay Area-ish rent yield, CA Prop 13 tax.
+  const ASSUME_DEFAULTS = { down: 20, rentYield: 3, taxRate: 1.15, taxGrowth: 2, insRate: 0.25, maintRate: 1, buyCost: 1, sellCost: 5 };
+  let assume = { ...ASSUME_DEFAULTS };
+  try { assume = { ...ASSUME_DEFAULTS, ...JSON.parse(localStorage.getItem('re-market:assume') || '{}') }; } catch { /* storage unavailable */ }
+  const saveAssume = () => { try { localStorage.setItem('re-market:assume', JSON.stringify(assume)); } catch { /* ignore */ } };
   let H = null;
   if (IS_LOCAL) {
     const tag = document.createElement('script');
@@ -695,6 +700,7 @@
     if (!ready) return;
     const invest = hstate.mode === 'invest';
     $('#hist-home-seg').hidden = invest;
+    $('#hist-owner').hidden = !invest;
     $('#hist-spy-seg').hidden = invest;
     const blue = css('--series-1'), orange = css('--series-2');
     const notices = [];
@@ -852,7 +858,9 @@
     const trCagr = endFull ? V.cagr(adj[baseMonth], adj[endFull.months.at(-1)], nYears) : null;
     const ytd = ytdWin ? tr.at(-1) : null;
 
-    notices.push(['info', 'Housing has no investment return here: a real estate return needs rental income, financing and leverage, property tax, insurance, maintenance and transaction costs, which this data doesn\'t include. Home price growth is not ROI.']);
+    const owner = ownerEstimate(years);
+    notices.push(['info', 'The real estate figure is an <b>estimate</b> from the assumptions below: buy in mid-' + (owner?.baseYear ?? '') + ' with a 30-yr fixed loan at that year\'s average rate, pay tax, insurance and maintenance, count the rent you no longer pay, then sell. It ignores income-tax effects, HOA, refinancing and vacancy. Home price growth on its own is not ROI.']);
+    if (owner?.pathNote) notices.push(['info', owner.pathNote]);
     $('#hist-sub').textContent = `Investment returns: SPY with dividends reinvested, month-end to month-end from ${monthEndText(baseMonth)}. `
       + 'Stored only on this computer and not part of the online site.';
 
@@ -863,8 +871,12 @@
         [trCagr != null ? `${pctN(trCagr)} per year over ${nYears} full years` : '–', 'Dividends included (reinvested)'])
       + tile(`SPY ${ytdWin ? `${ytdWin.year} year-to-date` : 'latest year'}`, orange, ytd ? pctN(ytd.ret) : '–',
         [ytd ? `${monthEndText(`${+ytdWin.year - 1}-12`)} – ${monthEndText(ytd.endMonth)} · provisional` : '', 'Dividends included (reinvested)'])
-      + tile('Real estate total return', null, 'Not available',
-        ['Needs rent, costs, financing and leverage', 'Home price growth alone is not an investment return']);
+      + (owner?.r?.irr != null
+        ? tile(`Real estate · buyer-owner estimate · mid-${owner.baseYear} – mid-${owner.endYear}`, css('--series-1'), `${pctN(owner.r.irr)} per year`,
+          [owner.spyCagr != null ? `SPY total return, same dates: ${pctN(owner.spyCagr)} per year` : 'SPY same-dates return: n/a',
+            `${owner.r.multiple?.toFixed(2) ?? '–'}× on ${money(owner.r.invested)} cash put in · estimate`])
+        : tile('Real estate · buyer-owner estimate', null, 'Not available', [owner?.why ?? 'Needs full-year prices and the purchase-year mortgage rate', 'Home price growth alone is not an investment return']));
+    renderOwnerTable(owner);
 
     let labels, series, describe, defaultIdx, hollow;
     if (hstate.grain === 'year') {
@@ -898,6 +910,73 @@
         <td>${tr[i].ret != null && pr[i].ret != null ? pctN(tr[i].ret - pr[i].ret, 2) : '–'}</td><td><b>${idxText(V.indexOf(adj[w.months.at(-1)], adj[baseMonth]))}</b></td></tr>`).reverse().join('');
     renderNotices(notices);
   }
+
+  /**
+   * Buyer-owner estimate inputs from the data: purchase at the base year's median sale price (current
+   * filters), value path from FHFA HPI when a county is selected (repeat-sales appreciation), otherwise
+   * from the yearly median sale price; loan rate = purchase-year average 30-yr rate.
+   */
+  function ownerEstimate(years) {
+    const full = years.filter((w) => !w.partial);
+    if (full.length < 2) return { why: 'Needs at least two full years of data' };
+    const baseYear = full[0].year, endYear = full.at(-1).year;
+    const okZip = H.zips.map(([zip, city, county]) =>
+      (!state.county || county === state.county) && (!state.city || city === state.city) && (!state.zip || zip === state.zip));
+    const okType = H.types.map((t) => !state.type || state.type.split('|').includes(t));
+    const byYear = new Map(full.map((w) => [w.year, []]));
+    for (let i = 0; i < H.rows.length; i += 4) {
+      if (!okZip[H.rows[i]] || !okType[H.rows[i + 2]]) continue;
+      const y = H.months[H.rows[i + 1]].slice(0, 4);
+      byYear.get(y)?.push(H.rows[i + 3] * 1000);
+    }
+    const P0 = V.median(byYear.get(baseYear) ?? []);
+    if (!P0) return { baseYear, endYear, why: 'No sales for the current filters in ' + baseYear };
+    const h = state.county ? H.hpi?.[state.county] : null;
+    let values, pathNote;
+    if (h && full.every((w) => h.values[w.year])) {
+      values = full.map((w) => P0 * (h.values[w.year] / h.values[baseYear]));
+      pathNote = `Home value grows with the FHFA repeat-sales HPI for ${state.county} County, starting from the ${baseYear} median sale price (${money(P0)}).`;
+    } else {
+      values = full.map((w) => V.median(byYear.get(w.year) ?? []));
+      pathNote = `Home value follows the yearly median sale price (${money(P0)} in ${baseYear}), which moves with the mix of homes sold. Select a county to grow it with the FHFA repeat-sales HPI instead.`;
+    }
+    const rateVals = H.months.filter((m) => m.startsWith(baseYear)).map((m) => H.rates?.[m]).filter((v) => v != null);
+    if (!rateVals.length) return { baseYear, endYear, why: `Mortgage rate for ${baseYear} is missing; re-run npm run fetch:history` };
+    const rate = V.mean(rateVals) / 100;
+    const a = Object.fromEntries(Object.entries(assume).map(([k, v]) => [k, (Number(v) || 0) / 100]));
+    const r = V.ownerReturn(values, rate, a);
+    // SPY total return over the same holding window (mid-year to mid-year).
+    const s0 = H.spy[`${baseYear}-06`]?.[1], s1 = H.spy[`${endYear}-06`]?.[1];
+    const spyCagr = V.cagr(s0, s1, +endYear - +baseYear);
+    return { baseYear, endYear, P0, rate, values, r, spyCagr, pathNote, why: r ? null : 'Incomplete price data for the holding period' };
+  }
+
+  function renderOwnerTable(owner) {
+    const form = $('#hist-assume');
+    for (const [k, v] of Object.entries(assume)) if (form.elements[k] && document.activeElement !== form.elements[k]) form.elements[k].value = v;
+    const r = owner?.r;
+    if (!r) { $('#hist-owner-table tbody').innerHTML = `<tr><td>${owner?.why ?? 'Not enough data'}</td></tr>`; return; }
+    const t = r.totals;
+    const rows = [
+      ['Purchase price', `${money(r.purchase)} <span class="ro-sub">(${owner.baseYear} median sale)</span>`],
+      ['Cash at purchase', `${money(r.initial)} <span class="ro-sub">(down payment + buying costs)</span>`],
+      ['Loan', `${money(r.loan)} at ${(owner.rate * 100).toFixed(2)}% <span class="ro-sub">(${owner.baseYear} avg 30-yr rate)</span>`],
+      [`Mortgage payments, ${r.years} yrs`, `−${money(t.mortgage)}`],
+      ['Property tax + insurance + maintenance', `−${money(t.tax + t.insurance + t.maintenance)}`],
+      ['Rent saved', `+${money(t.rent)}`],
+      ['Sale price', `${money(r.sale)} <span class="ro-sub">(mid-${owner.endYear})</span>`],
+      ['Net from sale', `${money(r.saleNet)} <span class="ro-sub">(after selling costs and ${money(r.balance)} loan payoff)</span>`],
+      ['Annual return (IRR)', `<b>${pctN(r.irr)}</b> <span class="ro-sub">vs SPY ${pctN(owner.spyCagr)} same dates</span>`],
+    ];
+    $('#hist-owner-table tbody').innerHTML = rows.map(([k, v]) => `<tr><th scope="row">${k}</th><td>${v}</td></tr>`).join('');
+  }
+  $('#hist-assume').addEventListener('input', (e) => {
+    if (!e.target.name) return;
+    assume[e.target.name] = e.target.value === '' ? 0 : Number(e.target.value);
+    saveAssume();
+    renderHistory();
+  });
+  $('#hist-assume-reset').addEventListener('click', () => { assume = { ...ASSUME_DEFAULTS }; saveAssume(); renderHistory(); });
 
   function renderNotices(list) {
     $('#hist-notices').innerHTML = list.map(([kind, html]) => `<li class="${kind}">${html}</li>`).join('');

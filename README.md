@@ -13,6 +13,6 @@ Local dashboard tracking Bay Area closed residential sales:
 - Filters by county, city, zip, and property type
 - **Homes vs. S&P 500 (local only)**: *Market price comparison* (home average / median sale price or FHFA
   repeat-sales HPI vs. SPY price, 2015 = 100, yearly averages; YTD compared with the same months last year and
-  chain-linked as provisional) and *Investment returns* (SPY total return, Dec-to-Dec; no real-estate return without
-  rent/cost/leverage data). Run `npm run fetch:history`; `data/history.js` is git-ignored, never copied into
+  chain-linked as provisional) and *Investment returns* (SPY total return, Dec-to-Dec, plus an editable buyer-owner real
+  estate estimate: leverage at the purchase-year mortgage rate, ownership costs, rent saved, IRR on cash). Run `npm run fetch:history`; `data/history.js` is git-ignored, never copied into
   `dist/`, and only loaded from `file://` or `localhost`, so it never appears online

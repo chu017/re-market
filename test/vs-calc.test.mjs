@@ -98,3 +98,49 @@ test('median handles even and odd counts', () => {
   assert.equal(C.median([4, 1, 3, 2]), 2.5);
   assert.equal(C.median([]), null);
 });
+
+test('mortgage payment and balance match the standard amortization formula', () => {
+  close(C.mortgagePayment(100_000, 0.06), 599.5505251527569, 1e-6); // $100k, 6%, 30y
+  close(C.mortgagePayment(120_000, 0), 120_000 / 360);
+  close(C.loanBalance(100_000, 0.06, 0), 100_000, 1e-6);
+  close(C.loanBalance(100_000, 0.06, 360), 0, 1e-6);
+  const b = C.loanBalance(100_000, 0.06, 120);
+  assert.ok(b > 80_000 && b < 85_000, `balance after 10y ${b}`); // ~83,685
+});
+
+test('IRR solves NPV = 0', () => {
+  close(C.irr([-100, 110]), 0.1, 1e-7);
+  close(C.irr([-100, 0, 121]), 0.1, 1e-7);
+  close(C.irr([-1000, 300, 300, 300, 300]), 0.07714, 1e-4);
+  assert.equal(C.irr([100, 100]), null); // no sign change
+});
+
+const NO_COSTS = { down: 1, buyCost: 0, sellCost: 0, taxRate: 0, taxGrowth: 0, insRate: 0, maintRate: 0, rentYield: 0 };
+
+test('owner return with all cash and no costs equals price growth', () => {
+  const r = C.ownerReturn([100, 121], 0.05, NO_COSTS);
+  close(r.irr, 0.21, 1e-7);
+  close(C.ownerReturn([100, 110, 121], 0.05, NO_COSTS).irr, 0.1, 1e-7);
+  close(r.multiple, 1.21, 1e-9);
+});
+
+test('rent saved raises the return; costs and selling fees lower it', () => {
+  const base = C.ownerReturn([100, 110, 121], 0.05, NO_COSTS).irr;
+  assert.ok(C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, rentYield: 0.03 }).irr > base);
+  assert.ok(C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, maintRate: 0.01 }).irr < base);
+  assert.ok(C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, sellCost: 0.05 }).irr < base);
+});
+
+test('leverage amplifies returns when growth beats the loan rate', () => {
+  const cash = C.ownerReturn([100, 110, 121], 0.03, NO_COSTS).irr;
+  const levered = C.ownerReturn([100, 110, 121], 0.03, { ...NO_COSTS, down: 0.2 });
+  assert.ok(levered.irr > cash, `${levered.irr} vs ${cash}`);
+  close(levered.loan, 80);
+  assert.ok(levered.balance > 0 && levered.balance < 80);
+});
+
+test('owner return rejects incomplete inputs', () => {
+  assert.equal(C.ownerReturn([100], 0.05, NO_COSTS), null);
+  assert.equal(C.ownerReturn([100, null], 0.05, NO_COSTS), null);
+  assert.equal(C.ownerReturn([0, 100], 0.05, NO_COSTS), null);
+});

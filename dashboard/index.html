@@ -151,6 +151,23 @@
     <div id="hist-body">
       <ul class="vs-notices" id="hist-notices"></ul>
       <div class="vs-tiles" id="vs-tiles"></div>
+      <details class="owner" id="hist-owner" open hidden>
+        <summary>Buyer-owner estimate — assumptions &amp; breakdown</summary>
+        <div class="owner-grid">
+          <form class="assume" id="hist-assume" autocomplete="off">
+            <label>Down payment <span><input type="number" name="down" min="0" max="100" step="1">%</span></label>
+            <label>Rent saved (of value / yr) <span><input type="number" name="rentYield" min="0" max="15" step="0.1">%</span></label>
+            <label>Property tax (of purchase price) <span><input type="number" name="taxRate" min="0" max="5" step="0.05">%</span></label>
+            <label>Tax increase / yr <span><input type="number" name="taxGrowth" min="0" max="10" step="0.5">%</span></label>
+            <label>Insurance (of value / yr) <span><input type="number" name="insRate" min="0" max="5" step="0.05">%</span></label>
+            <label>Maintenance (of value / yr) <span><input type="number" name="maintRate" min="0" max="5" step="0.1">%</span></label>
+            <label>Buying costs <span><input type="number" name="buyCost" min="0" max="10" step="0.5">%</span></label>
+            <label>Selling costs <span><input type="number" name="sellCost" min="0" max="15" step="0.5">%</span></label>
+            <button type="button" class="btn-outline" id="hist-assume-reset">Reset assumptions</button>
+          </form>
+          <table class="data-table owner-table" id="hist-owner-table"><tbody></tbody></table>
+        </div>
+      </details>
       <div class="readout" id="hist-readout" aria-live="polite"></div>
       <div class="chart-box tall"><canvas id="hist-chart" role="img" aria-label="Homes vs SPY index chart"></canvas></div>
       <div class="legend" id="hist-legend"></div>
@@ -167,9 +184,10 @@
           <li><b>Two modes.</b> <i>Market price comparison</i> puts housing and SPY price levels on one scale (Index = value ÷ 2015 value × 100). It is a price comparison, not an investment return comparison. <i>Investment returns</i> shows what an investor in SPY actually earned, with dividends reinvested.</li>
           <li><b>Housing prices.</b> <i>Avg / Median sale price</i> come from MLSListings closed sales for your filters. They move with the <i>mix</i> of homes sold (size, location, type), so they are not the same as appreciation of a given home. <i>FHFA HPI</i> is a repeat-sales index (the same houses sold or appraised more than once), so it measures appreciation more directly — but it is county-level, annual, and single-family only.</li>
           <li><b>SPY.</b> <i>SPY price</i> uses closing prices without dividends. <i>Total return</i> uses dividend-adjusted closes, so dividends are assumed reinvested. In price mode yearly values are averages of monthly closes (to match yearly average home prices); in investment mode returns run month-end to month-end (Dec 31 to Dec 31 for a calendar year).</li>
-          <li><b>Not included.</b> Rental income, mortgage financing and leverage, property tax, insurance, maintenance, and transaction costs. That's why housing has no investment return here.</li>
+          <li><b>Price comparison leaves out</b> rent, financing, property tax, insurance, maintenance and transaction costs, so home price growth there is not an investment return.</li>
+          <li><b>Buyer-owner estimate</b> (Investment returns mode) adds them back from assumptions you can edit: buy in mid-year at the first year's median sale price with a 30-yr fixed loan at that year's average rate (Freddie Mac via FRED), pay property tax, insurance and maintenance, count the rent you no longer pay, and sell mid-year at the end net of selling costs and the loan payoff. The annual return is the IRR on your cash. Home value grows with FHFA HPI when a county is selected, otherwise with the median sale price. Income taxes, HOA, refinancing and vacancy are ignored — treat it as an estimate.</li>
           <li><b>Partial years.</b> Only complete months are used. A year-to-date value is compared with the same months of the previous year (e.g. Jan–Oct vs. Jan–Oct) and its index is provisional. Growth rates (CAGR) use full years only.</li>
-          <li><b>Sources &amp; updates.</b> MLSListings RESO Web API; SPY monthly closes from Yahoo Finance; FHFA All-Transactions HPI via FRED. All refreshed when you run <code>npm run fetch:history</code>.</li>
+          <li><b>Sources &amp; updates.</b> MLSListings RESO Web API; SPY monthly closes from Yahoo Finance; FHFA All-Transactions HPI and 30-yr mortgage rates via FRED. All refreshed when you run <code>npm run fetch:history</code>.</li>
         </ul>
       </details>
     </div>

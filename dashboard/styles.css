@@ -330,3 +330,17 @@ body.tv .rate-chg { font-size: 0.8em; }
 .vs-notices .picks { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 4px; vertical-align: middle; }
 .vs-notices .pick { padding: 2px 10px; border-radius: 999px; border: 1px solid currentColor; background: var(--surface); color: var(--text); font-size: 12px; }
 .vs-notices .pick:hover { background: var(--tint-strong); }
+
+/* buyer-owner estimate */
+.owner { margin: 0 0 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.owner summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.owner-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; margin-top: 10px; align-items: start; }
+@media (max-width: 900px) { .owner-grid { grid-template-columns: minmax(0, 1fr); } }
+.assume { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 14px; }
+.assume label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.assume label span { display: inline-flex; align-items: center; gap: 4px; color: var(--text); }
+.assume input { width: 70px; font: inherit; text-align: right; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.assume .btn-outline { justify-self: start; padding: 5px 12px; font-size: 13px; }
+.owner-table th, .owner-table td { padding: 7px 10px; font-size: 13px; }
+.owner-table th { text-align: left; background: none; font-weight: 500; color: var(--text-2); }
+.owner-table td { text-align: right; }

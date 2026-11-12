@@ -1,5 +1,5 @@
 // LOCAL ONLY. Downloads closed residential sales month by month since Jan 2015 (the MLS feed is
-// complete from then on) plus SPY monthly closes and FHFA county HPI, and writes data/history.js for the dashboard's
+// complete from then on) plus SPY monthly closes, FHFA county HPI and mortgage rates, and writes data/history.js for the dashboard's
 // "Homes vs. S&P 500" section.
 //
 //   npm run fetch:history
@@ -108,7 +108,24 @@ for (const [county, fips] of Object.entries(COUNTY_FIPS)) {
 }
 console.log(`FHFA HPI: ${Object.keys(hpi).length} counties, through ${Math.max(...Object.values(hpi).flatMap((h) => Object.keys(h.values).map(Number)))}`);
 
-const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy, hpi };
+// 30-yr fixed mortgage rate, monthly average of Freddie Mac's weekly survey (FRED, no key) -
+// used as the loan rate in the buyer-owner estimate.
+const rates = {};
+try {
+  const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US&cosd=${months[0]}-01`);
+  if (!res.ok) throw new Error(`FRED ${res.status}`);
+  const byMonth = {};
+  for (const line of (await res.text()).trim().split(/\r?\n/).slice(1)) {
+    const [date, v] = line.split(',');
+    if (v && v !== '.') (byMonth[date.slice(0, 7)] ??= []).push(Number(v));
+  }
+  for (const [m, vs] of Object.entries(byMonth)) rates[m] = Math.round((vs.reduce((x, y) => x + y, 0) / vs.length) * 1000) / 1000;
+  console.log(`Mortgage rates: ${Object.keys(rates).length} months`);
+} catch (err) {
+  console.warn(`Mortgage rates skipped: ${err.message}`);
+}
+
+const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy, hpi, rates };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 const out = join(ROOT, 'data', 'history.js');
 writeFileSync(out, `window.HISTORY_DATA = ${JSON.stringify(payload)};\n`);
