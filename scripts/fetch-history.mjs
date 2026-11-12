@@ -1,6 +1,6 @@
 // LOCAL ONLY. Downloads closed residential sales month by month since Jan 2015 (the MLS feed is
-// complete from then on) plus the 30-yr mortgage rate, and writes data/history.js for the dashboard's
-// "Long-term history" section.
+// complete from then on) plus SPY monthly closes, and writes data/history.js for the dashboard's
+// "Homes vs. S&P 500" section.
 //
 //   npm run fetch:history
 //   npm run fetch:history -- --from 2018-01 --counties "SantaClara,SanMateo"
@@ -58,23 +58,29 @@ const zips = [...zipIndex.keys()].map((zip, i) => {
   return [zip, city, county];
 });
 
-// Monthly-average 30-yr mortgage rate for the same span (Freddie Mac PMMS via FRED).
-const rates = {};
+// SPY (S&P 500 ETF) monthly closes for the same span: price, and dividend-adjusted close for total
+// return. Yahoo Finance chart endpoint (no key; unofficial, so a failure only skips the SPY series).
+const spy = {};
 try {
-  const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US&cosd=${months[0]}-01`);
-  if (!res.ok) throw new Error(`FRED ${res.status}`);
-  const byMonth = {};
-  for (const line of (await res.text()).trim().split(/\r?\n/).slice(1)) {
-    const [date, v] = line.split(',');
-    if (!v || v === '.') continue;
-    (byMonth[date.slice(0, 7)] ??= []).push(Number(v));
-  }
-  for (const [m, vs] of Object.entries(byMonth)) rates[m] = Math.round((vs.reduce((a, b) => a + b, 0) / vs.length) * 1000) / 1000;
+  const p1 = Math.floor(Date.parse(`${months[0]}-01T00:00:00Z`) / 1000);
+  const p2 = Math.floor(Date.now() / 1000);
+  const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/SPY?period1=${p1}&period2=${p2}&interval=1mo&events=div`, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+  if (!res.ok) throw new Error(`Yahoo ${res.status}`);
+  const r = (await res.json()).chart?.result?.[0];
+  const close = r?.indicators?.quote?.[0]?.close ?? [];
+  const adj = r?.indicators?.adjclose?.[0]?.adjclose ?? [];
+  (r?.timestamp ?? []).forEach((t, i) => {
+    if (close[i] != null) spy[new Date(t * 1000).toISOString().slice(0, 7)] = [+close[i].toFixed(2), +(adj[i] ?? close[i]).toFixed(2)];
+  });
+  if (!Object.keys(spy).length) throw new Error('no data');
+  console.log(`SPY: ${Object.keys(spy).length} monthly closes`);
 } catch (err) {
-  console.warn(`Mortgage rates skipped: ${err.message}`);
+  console.warn(`SPY skipped: ${err.message}`);
 }
 
-const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, rates };
+const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 const out = join(ROOT, 'data', 'history.js');
 writeFileSync(out, `window.HISTORY_DATA = ${JSON.stringify(payload)};\n`);

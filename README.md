@@ -11,9 +11,10 @@ Local dashboard tracking Bay Area closed residential sales:
 - **Sales distribution**: price bands (<$1M … >$5M) or a $1M–$10M+ histogram in $250K bins
 - **By zip code**: volume and average price YoY (sortable, searchable, click to drill in)
 - Filters by county, city, zip, and property type
-- **Long-term history (local only)**: median / average price and sales volume monthly or yearly since 2015, with the
-  30-yr mortgage rate. Run `npm run fetch:history`; `data/history.js` is git-ignored, never copied into `dist/`,
-  and only loaded when the dashboard is opened from `file://` or `localhost`, so it never appears online
+- **Homes vs. S&P 500 (local only)**: home average or median sale price vs. SPY (price or with dividends), both
+  indexed to 2015 = 100, yearly or monthly, with 10-year total and per-year growth. Run `npm run fetch:history`;
+  `data/history.js` is git-ignored, never copied into `dist/`, and only loaded when the dashboard is opened from
+  `file://` or `localhost`, so it never appears online
 - **TV view** (header button, or open `dashboard/index.html#tv`): full-screen large-type view of just the two
   monthly charts and their rate strips for a wall display; reloads hourly, Esc exits
 
@@ -67,7 +68,7 @@ re-downloads the running month.
 config/bayarea-zips.json    zip list for the RentCast fetcher
 scripts/fetch-mls.mjs       MLSListings fetcher (keyset paging, per-month cache)
 scripts/fetch-rentcast.mjs  alternative RentCast fetcher
-scripts/fetch-history.mjs   LOCAL ONLY: MLS sales since 2015 + monthly rates -> data/history.js
+scripts/fetch-history.mjs   LOCAL ONLY: MLS sales since 2015 + SPY monthly closes -> data/history.js
 scripts/mls.mjs             shared MLS client (keyset paging, per-month cache)
 scripts/fetch-rates.mjs     30-yr mortgage rate (Freddie Mac PMMS via FRED, no key) -> data/rates.js
 scripts/mock-data.mjs       synthetic demo data

@@ -15,6 +15,7 @@
   --blue-2: #4a90f0;
   --series-1: #2470e0;
   --series-prior: #a7adb7;
+  --series-2: #eb6834;
   --up-bg: #e7f5ec;
   --up: #13793b;
   --down-bg: #fdecec;
@@ -40,6 +41,8 @@
     --blue-2: #6aa3f5;
     --series-1: #4b8df0;
     --series-prior: #6b7383;
+  --series-2: #d95926;
+    --series-2: #d95926;
     --up-bg: #12301f;
     --up: #4ade80;
     --down-bg: #3a1717;
@@ -65,6 +68,7 @@
   --blue-2: #6aa3f5;
   --series-1: #4b8df0;
   --series-prior: #6b7383;
+  --series-2: #d95926;
   --up-bg: #12301f;
   --up: #4ade80;
   --down-bg: #3a1717;
@@ -298,3 +302,12 @@ body.tv .rate-chg { font-size: 0.8em; }
 #hist-table { margin-top: 16px; }
 #hist-table th:first-child, #hist-table td:first-child { text-align: left; }
 .history-card code { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--tint); }
+
+/* homes vs SPY summary tiles */
+.vs-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; margin-bottom: 12px; }
+.vs-tile { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); }
+.vs-tile .label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.vs-tile .label i { width: 10px; height: 10px; border-radius: 50%; }
+.vs-tile .value { font-size: 26px; font-weight: 700; margin: 2px 0; }
+.vs-tile .delta { font-size: 13px; color: var(--text-2); }
+.ro-sub { color: var(--text-2); font-weight: 400; }
