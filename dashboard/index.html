@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bay Area Market Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <header class="page-head">
+    <div class="brand">
+      <span class="logo" data-icon="house"></span>
+      <div>
+        <h1>Bay Area Market Monitor</h1>
+        <p class="sub">Bay Area residential sales, with a month-by-month comparison of this year versus the same month last year.</p>
+      </div>
+    </div>
+    <div class="head-actions">
+      <p class="updated"><span data-icon="clock"></span><span id="updated">Last updated: –</span></p>
+      <button id="tv-toggle" type="button" class="btn-outline" aria-pressed="false" title="Large-screen view of the monthly charts (Esc to exit)">
+        <span data-icon="tv"></span><span class="tv-label">TV view</span>
+      </button>
+    </div>
+  </header>
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="filters" aria-label="Filters">
+    <label>County <select id="f-county"></select></label>
+    <label>City <select id="f-city"></select></label>
+    <label>Zip code <select id="f-zip"></select></label>
+    <label>Property type
+      <select id="f-type">
+        <option value="">All Residential</option>
+        <option value="Single Family">Single Family</option>
+        <option value="Condo|Townhouse">Condo &amp; Townhouse</option>
+        <option value="Multi-Family">Multi-Family</option>
+      </select>
+    </label>
+    <span class="divider" aria-hidden="true"></span>
+    <button id="f-reset" type="button" class="btn-outline"><span data-icon="reset"></span>Reset</button>
+  </section>
+
+  <div class="period-bar">
+    <div class="seg" role="group" aria-label="Comparison period">
+      <button type="button" data-period="90d" aria-pressed="true">Last 90 days</button>
+      <button type="button" data-period="ytd" aria-pressed="false">Year to date</button>
+    </div>
+    <p class="period-label" id="period-label"></p>
+  </div>
+  <section class="tiles" id="tiles" aria-label="Key metrics"></section>
+
+  <section class="row two" id="monthly-row">
+    <article class="card">
+      <div class="card-title">
+        <span class="icon-tile" data-icon="bars"></span>
+        <div><h2 id="vol-title">Monthly Sales Volume</h2><p class="card-sub" id="vol-sub">Number of closed residential sales by month.</p></div>
+      </div>
+      <div class="readout" id="vol-readout" aria-live="polite"></div>
+      <div class="chart-box"><canvas id="vol-chart" role="img" aria-label="Monthly closed sales, this year vs last year"></canvas></div>
+      <div class="rate-strip" data-rate-strip>
+        <p class="rate-head">30-yr mortgage rate <span>· monthly average</span></p>
+        <div class="rate-box"><canvas id="vol-rate" role="img" aria-label="30-year mortgage rate by month"></canvas></div>
+      </div>
+      <div class="legend" id="vol-legend"></div>
+    </article>
+    <article class="card">
+      <div class="card-title">
+        <span class="icon-tile" data-icon="database"></span>
+        <div><h2 id="avg-title">Monthly Average Sale Price</h2><p class="card-sub" id="avg-sub">Average closed sale price by month.</p></div>
+      </div>
+      <div class="readout" id="avg-readout" aria-live="polite"></div>
+      <div class="chart-box"><canvas id="avg-chart" role="img" aria-label="Monthly average sale price, this year vs last year"></canvas></div>
+      <div class="rate-strip" data-rate-strip>
+        <p class="rate-head">30-yr mortgage rate <span>· monthly average</span></p>
+        <div class="rate-box"><canvas id="avg-rate" role="img" aria-label="30-year mortgage rate by month"></canvas></div>
+      </div>
+      <div class="legend" id="avg-legend"></div>
+    </article>
+  </section>
+
+  <section class="row summary-row">
+    <article class="card">
+      <div class="card-title"><span class="icon-plain" data-icon="sparkle"></span><h2>Market Summary</h2></div>
+      <ul class="insights" id="insights"></ul>
+    </article>
+    <article class="card">
+      <div class="card-title"><span class="icon-plain" data-icon="table"></span><h2>Monthly Comparison: Sales Volume and Average Sale Price</h2></div>
+      <div class="table-wrap">
+        <table class="data-table" id="month-table">
+          <thead><tr id="month-head"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <section class="row two">
+    <article class="card">
+      <div class="card-title">
+        <span class="icon-tile" data-icon="trend"></span>
+        <div><h2>Weekly market trend</h2><p class="card-sub">Median sale price, last 12 weeks vs. same 12 weeks last year.</p></div>
+      </div>
+      <div class="readout" id="week-readout" aria-live="polite"></div>
+      <div class="chart-box"><canvas id="week-chart" role="img" aria-label="Weekly median sale price"></canvas></div>
+      <div class="legend" id="week-legend"></div>
+    </article>
+    <article class="card">
+      <div class="card-title spread">
+        <span class="icon-tile" data-icon="bars"></span>
+        <div><h2>Sales by price range</h2><p class="card-sub" id="dist-sub"></p></div>
+        <div class="seg" role="group" aria-label="Price ranges">
+          <button type="button" data-dist="bands" aria-pressed="true">Bands</button>
+          <button type="button" data-dist="detail" aria-pressed="false">$1M–$10M+</button>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="dist-chart" role="img" aria-label="Sales by price range"></canvas></div>
+    </article>
+  </section>
+
+  <section class="card zip-card">
+    <div class="card-title spread">
+      <span class="icon-tile" data-icon="pin"></span>
+      <div><h2 id="zip-title">By zip code — year over year</h2><p class="card-sub"><span id="zip-sub"></span> <span id="zip-hint"></span></p></div>
+      <div class="seg" role="group" aria-label="Group table by">
+        <button type="button" data-group="zip" aria-pressed="true">Zip code</button>
+        <button type="button" data-group="city" aria-pressed="false">City</button>
+      </div>
+      <input type="search" id="t-search" placeholder="Search zip or city" aria-label="Search zip or city">
+    </div>
+    <div class="table-wrap scroll">
+      <table class="data-table" id="zip-table">
+        <thead><tr id="zip-head"></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="card-sub">YoY is shown only when both periods have at least 3 sales.</p>
+  </section>
+
+  <footer id="notes"></footer>
+</main>
+
+<script src="../data/sales.js" onerror="window.MARKET_DATA = null"></script>
+<script src="../data/rates.js" onerror="window.RATE_DATA = null"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

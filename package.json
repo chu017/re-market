@@ -1,0 +1,17 @@
+{
+  "name": "re-market",
+  "version": "0.1.0",
+  "description": "Bay Area real estate market monitor dashboard",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "fetch": "node scripts/fetch-mls.mjs && node scripts/fetch-rates.mjs",
+    "fetch:rates": "node scripts/fetch-rates.mjs",
+    "fetch:rentcast": "node scripts/fetch-rentcast.mjs",
+    "mock": "node scripts/mock-data.mjs",
+    "serve": "node scripts/serve.mjs"
+  }
+}
