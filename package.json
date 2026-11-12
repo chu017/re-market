@@ -8,6 +8,8 @@
     "node": ">=18"
   },
   "scripts": {
+    "build": "npm run fetch && node scripts/build-site.mjs",
+    "build:site": "node scripts/build-site.mjs",
     "fetch": "node scripts/fetch-mls.mjs && node scripts/fetch-rates.mjs",
     "fetch:rates": "node scripts/fetch-rates.mjs",
     "fetch:rentcast": "node scripts/fetch-rentcast.mjs",

@@ -67,22 +67,34 @@ scripts/fetch-rentcast.mjs  alternative RentCast fetcher
 scripts/fetch-rates.mjs     30-yr mortgage rate (Freddie Mac PMMS via FRED, no key) -> data/rates.js
 scripts/mock-data.mjs       synthetic demo data
 scripts/serve.mjs           static file server
+scripts/build-site.mjs      assembles dist/ for Cloudflare Pages
+cloudflare/                 daily-rebuild Worker (cron -> Pages deploy hook)
 dashboard/                  index.html, app.js, styles.css (Chart.js from cdnjs)
 data/sales.js               generated dataset (git-ignored)
 ```
 
-## Deploy (GitHub Pages, refreshed daily)
+## Deploy (Cloudflare Pages, refreshed daily)
 
-`.github/workflows/deploy.yml` runs every day at 14:00 UTC (6–7am Pacific), on every push to `main`, and on demand.
-It restores the cached MLS months, runs `npm run fetch`, and publishes `dashboard/` + `data/*.js` to GitHub Pages.
+`npm run build` fetches fresh data and assembles the static site in `dist/` (dashboard, data files, a `/` →
+`/dashboard/` redirect, and no-cache headers for the data). `npm run build:site` assembles from existing data only.
 
-One-time setup on github.com:
+**1. Create the Pages project** — Cloudflare dashboard → Workers & Pages → Create → Pages → *Connect to Git* →
+pick this repo (it can stay private), then:
 
-1. **Settings → Secrets and variables → Actions → New repository secret**: add `MLS_API_BASE` and `MLS_ACCESS_TOKEN`
-   (same values as `.env`).
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions.** (Pages on a free account needs a public repo.)
-3. **Actions → Refresh data and deploy → Run workflow.** The site appears at `https://<user>.github.io/re-market/`;
-   TV view is `…/re-market/dashboard/#tv`.
+| Setting | Value |
+|---|---|
+| Production branch | `main` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Environment variables | `MLS_API_BASE`, `MLS_ACCESS_TOKEN` (mark as *Encrypt*), `NODE_VERSION` = `22`, `TZ` = `America/Los_Angeles` |
 
-The token is only used inside the workflow; the published site contains just the processed sales and rate files.
-Check that your MLS data license permits public display of sold data before making the site public.
+Each build downloads all months from Jan 1 of last year (~700 MLS requests, a few minutes). If the MLS fetch fails, the
+build fails and Cloudflare keeps serving the previous deployment.
+
+**2. Refresh daily** — Pages project → Settings → Builds → *Deploy hooks* → add one for `main` and copy the URL. Then
+create a Worker from `cloudflare/daily-rebuild-worker.js`, add the secret `DEPLOY_HOOK_URL`, and a cron trigger
+`0 14 * * *` (6–7am Pacific). Steps are in the file header.
+
+The site is `https://<project>.pages.dev/`; TV view is `…/dashboard/#tv`. The MLS token is only used during the
+build. Check that your MLS data license permits public display of sold data; to restrict viewers, put the site
+behind Cloudflare Access (Zero Trust → Access → Applications).
