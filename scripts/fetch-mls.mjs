@@ -32,7 +32,10 @@ const { values: args } = parseArgs({
 loadEnv();
 const { MLS_API_BASE: base, MLS_ACCESS_TOKEN: token } = process.env;
 if (!base || !token) {
-  console.error('MLS_API_BASE and MLS_ACCESS_TOKEN must be set as environment variables (or in .env when running locally).');
+  // Report presence only - never print values.
+  const state = (v) => (v ? 'set' : 'MISSING');
+  console.error(`MLS_API_BASE: ${state(base)} · MLS_ACCESS_TOKEN: ${state(token)}`);
+  console.error('Both must be set as environment variables (on Cloudflare: Settings -> Build -> Variables and secrets), or in .env when running locally.');
   process.exit(1);
 }
 warnIfTokenExpiring(token);
