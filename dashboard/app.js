@@ -235,7 +235,7 @@
   };
   const yAxisWidth = () => (isTV() ? 86 : 58);
 
-  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, labelFmt, dense = false, xTick, xOffset = false, colors }) {
+  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, labelFmt, dense = false, xTick, xOffset = false, colors, hollow }) {
     group.ids.add(id);
     const vals = [...cur, ...prior].filter((v) => v != null);
     const stripRange = strip && vals.length
@@ -245,7 +245,7 @@
     const surface = css('--surface');
     const line = (label, data, color, fill) => ({
       label, data, borderColor: color, backgroundColor: color, borderWidth: isTV() ? 3.5 : 2, tension: 0.3, spanGaps: false,
-      pointRadius: dense ? 0 : (strip ? 3 : 4) * (isTV() ? 1.6 : 1), pointHoverRadius: (strip ? 5 : 6) * (isTV() ? 1.5 : 1), pointBackgroundColor: color, pointBorderColor: surface, pointBorderWidth: 2,
+      pointRadius: dense ? 0 : (strip ? 3 : 4) * (isTV() ? 1.6 : 1), pointHoverRadius: (strip ? 5 : 6) * (isTV() ? 1.5 : 1), pointBackgroundColor: hollow ? (c) => (hollow.has(c.dataIndex) ? surface : color) : color, pointBorderColor: hollow ? (c) => (hollow.has(c.dataIndex) ? color : surface) : surface, pointBorderWidth: 2,
       pointHoverBorderWidth: 2, borderCapStyle: 'round', borderJoinStyle: 'round',
       fill: fill && !strip ? 'origin' : false,
       ...(fill && !strip && {
@@ -667,9 +667,10 @@
 
   // ---------- homes vs. S&P 500 (local only) ----------
   // data/history.js is never deployed: build-site.mjs doesn't copy it, and it's only requested when the
-  // page is opened from this computer.
+  // page is opened from this computer. The math lives in vs-calc.js (unit-tested in test/vs-calc.test.mjs).
   const IS_LOCAL = location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-  const hstate = { home: 'avg', spy: 'price', grain: 'year' };
+  const V = window.VsCalc;
+  const hstate = { mode: 'price', home: 'avg', spy: 'price', grain: 'year' };
   let H = null;
   if (IS_LOCAL) {
     const tag = document.createElement('script');
@@ -679,117 +680,222 @@
     document.head.appendChild(tag);
   }
   const MON_LONG = (ym) => `${MON[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
+  const monthEndText = (ym) => { const d = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)); return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`; };
   const idxText = (v) => (v == null ? '–' : v.toFixed(1));
-  const gainText = (v) => (v == null ? '–' : `${v >= 100 ? '+' : ''}${(v - 100).toFixed(1)}%`);
+  const cumText = (idx) => (idx == null ? '–' : `${idx >= 100 ? '+' : ''}${(idx - 100).toFixed(1)}%`);
+  const pctN = (v, d = 1) => (v == null ? '–' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(d)}%`);
+  const spanText = (ms) => (ms.length === 12 ? 'Full year' : `${MON[+ms[0].slice(5, 7) - 1]}–${MON[+ms.at(-1).slice(5, 7) - 1]}`);
 
   function renderHistory() {
     if (!IS_LOCAL) return;
     $('#history-card').hidden = false;
-    const ready = !!(H && H.spy && Object.keys(H.spy).length);
+    const ready = !!(H && H.spy && Object.keys(H.spy).length && V);
     $('#hist-body').hidden = !ready;
     $('#hist-empty').hidden = ready;
     if (!ready) return;
+    const invest = hstate.mode === 'invest';
+    $('#hist-home-seg').hidden = invest;
+    $('#hist-spy-seg').hidden = invest;
+    const blue = css('--series-1'), orange = css('--series-2');
+    const notices = [];
+
+    // Complete months only, on both sides.
+    const lastMonth = V.lastCompleteMonth(H.through);
+    const months = H.months.filter((m) => m <= lastMonth);
+    const years = V.yearWindows(months);
+    const ytdWin = years.at(-1)?.partial ? years.at(-1) : null;
 
     // Home sale prices per month for the dashboard filters ([zip, month, type, $K] quads).
     const okZip = H.zips.map(([zip, city, county]) =>
       (!state.county || county === state.county) && (!state.city || city === state.city) && (!state.zip || zip === state.zip));
     const okType = H.types.map((t) => !state.type || state.type.split('|').includes(t));
-    const byMonth = H.months.map(() => []);
+    const byMonth = new Map(H.months.map((m) => [m, []]));
     const R = H.rows;
-    for (let i = 0; i < R.length; i += 4) if (okZip[R[i]] && okType[R[i + 2]]) byMonth[R[i + 1]].push(R[i + 3] * 1000);
+    for (let i = 0; i < R.length; i += 4) if (okZip[R[i]] && okType[R[i + 2]]) byMonth.get(H.months[R[i + 1]]).push(R[i + 3] * 1000);
+    const salesIn = (ms) => ms.reduce((a, m) => a + (byMonth.get(m)?.length ?? 0), 0);
 
-    // Only complete months count; the running month is left out on both sides.
-    const lastFull = H.through < `${H.months.at(-1)}-28` ? H.months.length - 2 : H.months.length - 1;
-    const months = H.months.slice(0, lastFull + 1);
-    const homeAgg = hstate.home === 'avg' ? mean : median;
+    const cutoff = `Data through ${monthEndText(lastMonth)} (last complete month; MLS refreshed ${H.through}).`
+      + (ytdWin && !invest ? ` ${ytdWin.year} is year-to-date and provisional: ${spanText(ytdWin.months)} ${ytdWin.year}, compared with ${spanText(ytdWin.months)} ${+ytdWin.year - 1}.` : '')
+      + (ytdWin && invest ? ` ${ytdWin.year} is year-to-date and provisional: Dec 31, ${+ytdWin.year - 1} – ${monthEndText(lastMonth)}.` : '');
+    $('#hist-cutoff').textContent = cutoff;
+
+    if (invest) return renderInvest({ months, years, ytdWin, orange, notices });
+
+    // ----- Mode A: market price comparison -----
+    let homeName, homeSource, valueFor, homeMonthly = null, homeFmt = money;
+    const hpiCounty = state.county;
+    if (hstate.home === 'hpi') {
+      const h = hpiCounty && H.hpi?.[hpiCounty];
+      homeName = 'FHFA HPI';
+      homeSource = h ? `FHFA All-Transactions HPI, ${hpiCounty} County (${h.series})` : 'FHFA HPI';
+      homeFmt = (v) => (v == null ? '–' : v.toFixed(1));
+      if (!hpiCounty) notices.push(['warn', 'FHFA HPI is published per county and there is no Bay Area composite. Select a county in the County filter to compare it.']);
+      else if (!h) notices.push(['warn', `No FHFA HPI series is available for ${hpiCounty}.`]);
+      if (h) {
+        const last = Math.max(...Object.keys(h.values).map(Number));
+        notices.push(['info', `${homeSource}: repeat-sales index of single-family homes (includes refinance appraisals), annual, through ${last}. It measures appreciation of the same homes, not the average sale.`]);
+        if (state.city || state.zip) notices.push(['warn', `FHFA HPI is county-level, so your ${state.zip ? 'ZIP' : 'city'} filter doesn't apply — this line shows all of ${hpiCounty} County.`]);
+        if (state.type && state.type !== 'Single Family') notices.push(['warn', 'FHFA HPI covers single-family homes only, so your property-type filter doesn\'t apply to it.']);
+        if (hstate.grain === 'month') notices.push(['warn', 'FHFA county HPI is annual only — switch to Yearly to see it.']);
+        if (ytdWin) notices.push(['info', `FHFA HPI for ${ytdWin.year} isn't published yet, so there is no year-to-date housing value.`]);
+      }
+      // Full years only; partial-year windows have no HPI value.
+      valueFor = (ms) => (h && ms.length === 12 ? h.values[ms[0].slice(0, 4)] ?? null : null);
+    } else {
+      const agg = hstate.home === 'avg' ? V.mean : V.median;
+      homeName = hstate.home === 'avg' ? 'Average sale price' : 'Median sale price';
+      homeSource = `${homeName}, MLSListings closed sales`;
+      valueFor = (ms) => { const p = ms.flatMap((m) => byMonth.get(m) ?? []); return p.length ? agg(p) : null; };
+      homeMonthly = (m) => { const p = byMonth.get(m) ?? []; return p.length ? agg(p) : null; };
+      notices.push(['info', `${homeName} reflects the mix of homes sold each year, not the appreciation of a given home. For repeat-sales appreciation, pick a county and choose FHFA HPI.`]);
+    }
     const spyCol = hstate.spy === 'price' ? 0 : 1;
-    const homeName = hstate.home === 'avg' ? 'Home avg price' : 'Home median price';
-    const spyName = hstate.spy === 'price' ? 'SPY price' : 'SPY + dividends';
+    const spyName = hstate.spy === 'price' ? 'SPY price' : 'SPY total return';
+    if (spyCol === 1) notices.push(['warn', 'Mixed methodologies: housing price levels vs. SPY total return (with reinvested dividends). For a like-for-like price comparison choose SPY price; for investment performance use Investment returns.']);
+    const spyValueFor = (ms) => V.mean(ms.map((m) => H.spy[m]?.[spyCol]).filter((v) => v != null));
 
-    // Yearly values: home = average/median of that year's sales; SPY = average of monthly closes.
-    const years = [...new Set(months.map((m) => m.slice(0, 4)))];
-    const yearVals = years.map((y) => {
-      const ms = months.map((m, i) => [m, i]).filter(([m]) => m.startsWith(y));
-      const prices = ms.flatMap(([, i]) => byMonth[i]);
-      const spyVals = ms.map(([m]) => H.spy[m]?.[spyCol]).filter((v) => v != null);
-      return { y, n: prices.length, home: prices.length ? homeAgg(prices) : null, spy: spyVals.length ? mean(spyVals) : null, partial: ms.length < 12, months: ms.length };
-    });
-    const base = yearVals[0];
-    if (!base.home || !base.spy) { $('#hist-body').hidden = true; $('#hist-empty').hidden = false; return; }
-    const hIdx = (v) => (v == null ? null : (v / base.home) * 100);
-    const sIdx = (v) => (v == null ? null : (v / base.spy) * 100);
-    const blue = css('--series-1'), orange = css('--series-2');
+    const home = V.annualLevels(months, valueFor);
+    const spy = V.annualLevels(months, spyValueFor);
+    const baseYear = spy.baseYear;
+    const fullRows = (lv) => lv.rows.filter((r) => !r.partial && r.index != null);
+    const hEnd = fullRows(home).at(-1), sEnd = fullRows(spy).at(-1);
+    const hCagr = hEnd && home.baseYear ? V.cagr(home.base, hEnd.value, +hEnd.year - +home.baseYear) : null;
+    const sCagr = sEnd ? V.cagr(spy.base, sEnd.value, +sEnd.year - +baseYear) : null;
+    // Compare over the same full-year window.
+    const sSame = hEnd ? spy.rows.find((r) => r.year === hEnd.year) : null;
+    const sCagrSame = hEnd && sSame ? V.cagr(spy.base, sSame.value, +hEnd.year - +baseYear) : null;
 
-    // Summary tiles: 2015 -> last complete year, total gain and compound annual growth.
-    const full = yearVals.filter((r) => !r.partial);
-    const end = full.at(-1);
-    const span = +end.y - +base.y;
-    const cagr = (a, b) => (a && b && span ? (Math.pow(b / a, 1 / span) - 1) * 100 : null);
-    const hC = cagr(base.home, end.home), sC = cagr(base.spy, end.spy);
-    const pct1 = (v) => (v == null ? '–' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`);
-    $('#vs-tiles').innerHTML = [
-      [homeName, hIdx(end.home), hC, blue],
-      [spyName, sIdx(end.spy), sC, orange],
-    ].map(([label, idx, c, color]) => `<div class="vs-tile"><div class="label"><i style="background:${color}"></i>${label} · ${base.y}–${end.y}</div>
-        <div class="value">${gainText(idx)}</div><div class="delta">${pct1(c)} per year · index ${idxText(idx)}</div></div>`).join('')
-      + `<div class="vs-tile"><div class="label">Gap after ${span} years</div><div class="value">${hC != null && sC != null ? `${Math.abs(sC - hC).toFixed(1)} pt/yr` : '–'}</div>
-        <div class="delta">${sC > hC ? 'SPY ahead' : 'Homes ahead'} · $100 in ${base.y} → $${num(hIdx(end.home))} homes vs $${num(sIdx(end.spy))} SPY</div></div>`;
-
-    $('#hist-sub').textContent = `Both indexed to ${base.y} = 100 · ${homeName.toLowerCase()} for the current filters vs. ${spyName}. `
+    $('#hist-sub').textContent = `Market price comparison — not an investment return comparison. Both indexed to ${baseYear} = 100 (yearly averages). `
       + 'Stored only on this computer and not part of the online site.';
-    $('#hist-legend').innerHTML = legendKey(blue, homeName) + legendKey(orange, spyName);
 
-    let labels, hSeries, sSeries, describe, defaultIdx;
+    const tile = (label, color, value, lines) => `<div class="vs-tile"><div class="label">${color ? `<i style="background:${color}"></i>` : ''}${label}</div>
+      <div class="value">${value}</div>${lines.map((l) => `<div class="delta">${l}</div>`).join('')}</div>`;
+    $('#vs-tiles').innerHTML =
+      tile(`Home price change · ${home.baseYear ?? baseYear}–${hEnd?.year ?? '–'}`, blue, hEnd ? cumText(hEnd.index) : 'n/a',
+        [hCagr != null ? `${pctN(hCagr)} per year (annualized)` : 'Annualized growth: n/a', `${homeName}${hstate.home === 'hpi' ? '' : ' · reflects sales mix'}`])
+      + tile(`SPY ${spyCol ? 'total return level' : 'price change'} · ${baseYear}–${sSame?.year ?? sEnd?.year ?? '–'}`, orange, sSame ? cumText(sSame.index) : sEnd ? cumText(sEnd.index) : 'n/a',
+        [sCagrSame != null ? `${pctN(sCagrSame)} per year (annualized)` : sCagr != null ? `${pctN(sCagr)} per year` : '–', spyCol ? 'Dividends included (reinvested)' : 'Price only · dividends not included'])
+      + tile('Performance gap', null, hCagr != null && sCagrSame != null ? `${((sCagrSame - hCagr) * 100).toFixed(1)} pt/yr` : 'n/a',
+        [hEnd && sSame ? `${sCagrSame > hCagr ? 'SPY' : 'Homes'} ahead · index ${idxText(sSame.index)} vs ${idxText(hEnd.index)} (${(sSame.index / hEnd.index).toFixed(2)}×)` : 'Needs full-year data on both sides',
+          'Price levels, yearly averages, same years']);
+
+    // Chart + table
+    let labels, hSeries, sSeries, hollow, describe, defaultIdx;
     if (hstate.grain === 'year') {
-      labels = yearVals.map((r) => (r.partial ? `${r.y} YTD` : r.y));
-      hSeries = yearVals.map((r) => hIdx(r.home));
-      sSeries = yearVals.map((r) => sIdx(r.spy));
+      const rows = spy.rows;
+      labels = rows.map((r) => (r.partial ? `${r.year} YTD` : r.year));
+      const hByYear = new Map(home.rows.map((r) => [r.year, r]));
+      hSeries = rows.map((r) => hByYear.get(r.year)?.index ?? null);
+      sSeries = rows.map((r) => r.index);
+      hollow = new Set(rows.map((r, i) => (r.partial ? i : -1)));
       describe = (i, isDefault) => {
-        const r = yearVals[i];
-        return `<span class="ro-title">${labels[i]}</span>`
-          + roKey(blue, 'Homes', `${idxText(hSeries[i])} <span class="ro-sub">(${money(r.home)})</span>`)
-          + roKey(orange, 'SPY', `${idxText(sSeries[i])} <span class="ro-sub">($${r.spy?.toFixed(2)})</span>`)
-          + `<span class="ro-rate">gap <b>${idxText(sSeries[i] - hSeries[i])}</b> pts${r.partial ? ` · Jan–${MON[r.months - 1]}` : ''}</span>`
+        const r = rows[i], hr = hByYear.get(r.year);
+        return `<span class="ro-title">${labels[i]}${r.partial ? ' <span class="ro-sub">(provisional)</span>' : ''}</span>`
+          + roKey(blue, homeName, hr?.value == null ? (hstate.home === 'hpi' ? 'not yet published' : '–') : `${homeFmt(hr.value)} <span class="ro-sub">· index ${idxText(hr.index)} (${cumText(hr.index)})</span>`)
+          + roKey(orange, spyName, `$${r.value?.toFixed(2) ?? '–'} <span class="ro-sub">· index ${idxText(r.index)} (${cumText(r.index)})</span>`)
+          + (r.partial ? `<span class="ro-rate">${spanText(r.months)} vs ${spanText(r.months)} ${+r.year - 1}</span>` : '')
           + roHint(isDefault);
       };
-      defaultIdx = yearVals.length - 1;
+      defaultIdx = rows.length - 1;
     } else {
       labels = months;
-      hSeries = months.map((_, i) => (byMonth[i].length ? hIdx(homeAgg(byMonth[i])) : null));
-      sSeries = months.map((m) => sIdx(H.spy[m]?.[spyCol] ?? null));
+      const homeOk = !!homeMonthly;
+      hSeries = months.map((m) => (homeOk ? V.indexOf(homeMonthly(m), home.base) : null));
+      sSeries = months.map((m) => V.indexOf(H.spy[m]?.[spyCol] ?? null, spy.base));
+      hollow = undefined;
       describe = (i, isDefault) => `<span class="ro-title">${MON_LONG(months[i])}</span>`
-        + roKey(blue, 'Homes', idxText(hSeries[i])) + roKey(orange, 'SPY', idxText(sSeries[i]))
-        + `<span class="ro-rate">${num(byMonth[i].length)} sales</span>` + roHint(isDefault);
+        + roKey(blue, homeName, homeOk ? `${homeFmt(homeMonthly(months[i]))} <span class="ro-sub">· index ${idxText(hSeries[i])}</span>` : 'n/a')
+        + roKey(orange, spyName, `$${H.spy[months[i]]?.[spyCol]?.toFixed(2) ?? '–'} <span class="ro-sub">· index ${idxText(sSeries[i])}</span>`)
+        + `<span class="ro-rate">${num(byMonth.get(months[i])?.length ?? 0)} sales</span>` + roHint(isDefault);
       defaultIdx = months.length - 1;
     }
     const group = readoutGroup($('#hist-readout'), describe, defaultIdx);
     lineChart('hist-chart', labels, hSeries, sSeries, {
-      curLabel: homeName, priorLabel: spyName, axisFmt: (v) => `${v}`, group, colors: [blue, orange],
+      curLabel: homeName, priorLabel: spyName, axisFmt: (v) => `${v}`, group, colors: [blue, orange], hollow,
       dense: hstate.grain === 'month', xTick: hstate.grain === 'month' ? (_, i) => (labels[i]?.endsWith('-01') ? labels[i].slice(0, 4) : '') : undefined,
     });
     showReadout(group, null, null);
+    $('#hist-legend').innerHTML = legendKey(blue, homeSource) + legendKey(orange, `${spyName} (Yahoo Finance)`);
 
-    $('#hist-head').innerHTML = ['Year', homeName, 'Home index', 'Home YoY', `SPY avg close`, 'SPY index', 'SPY YoY', 'SPY + div. index', 'Sales']
+    $('#hist-head').innerHTML = ['Year', 'Period', homeName, 'Home index', 'Home YoY', `SPY avg ${spyCol ? 'adj. close' : 'close'}`, 'SPY index', 'SPY YoY', 'Sales']
       .map((h) => `<th>${h}</th>`).join('');
-    const totals = years.map((y) => {
-      const ms = months.filter((m) => m.startsWith(y));
-      const t = ms.map((m) => H.spy[m]?.[1]).filter((v) => v != null);
-      return t.length ? mean(t) : null;
-    });
-    const priceAvg = years.map((y) => { const v = months.filter((m) => m.startsWith(y)).map((m) => H.spy[m]?.[0]).filter((x) => x != null); return v.length ? mean(v) : null; });
-    $('#hist-table tbody').innerHTML = yearVals.map((r, i) => {
-      const prev = yearVals[i - 1];
-      return `<tr><td>${r.partial ? `<span class="chip">${r.y} YTD</span>` : r.y}</td>
-        <td>${money(r.home)}</td><td><b>${idxText(hIdx(r.home))}</b></td><td>${prev ? pill(yoy(r.home, prev.home)) : '–'}</td>
-        <td>$${priceAvg[i]?.toFixed(2) ?? '–'}</td><td><b>${idxText((priceAvg[i] / priceAvg[0]) * 100)}</b></td><td>${prev ? pill(yoy(priceAvg[i], priceAvg[i - 1])) : '–'}</td>
-        <td>${idxText((totals[i] / totals[0]) * 100)}</td><td>${num(r.n)}</td></tr>`;
-    }).reverse().join('');
-    const lastYear = yearVals.at(-1);
-    $('#hist-note').textContent = `Yearly values: ${hstate.home === 'avg' ? 'average' : 'median'} of that year's home sales; SPY is the average of its monthly closes. `
-      + (lastYear.partial ? `${lastYear.y} covers Jan–${MON[lastYear.months - 1]} for both. ` : '')
-      + 'Home prices are unleveraged and exclude rent and holding costs; the yearly mix of homes sold also moves the average. SPY data: Yahoo Finance.';
+    const hByYear = new Map(home.rows.map((r) => [r.year, r]));
+    $('#hist-table tbody').innerHTML = [...spy.rows].reverse().map((r) => {
+      const hr = hByYear.get(r.year);
+      const period = r.partial ? `${spanText(r.months)} <span class="ro-sub">vs ${spanText(r.months)} ${+r.year - 1}</span>` : 'Full year';
+      return `<tr><td>${r.partial ? `<span class="chip" title="Provisional">${r.year} YTD</span>` : r.year}</td><td>${period}</td>
+        <td>${homeFmt(hr?.value)}</td><td><b>${idxText(hr?.index)}</b>${r.partial && hr?.index != null ? '*' : ''}</td><td>${pill(hr?.yoy ?? null)}</td>
+        <td>$${r.value?.toFixed(2) ?? '–'}</td><td><b>${idxText(r.index)}</b>${r.partial ? '*' : ''}</td><td>${pill(r.yoy)}</td><td>${num(salesIn(r.months))}</td></tr>`;
+    }).join('');
+    if (ytdWin) $('#hist-cutoff').textContent = cutoff + ' * Provisional index, chain-linked from the previous full year using the matching months.';
+    renderNotices(notices);
   }
-  for (const [attr, key] of [['hhome', 'home'], ['hspy', 'spy'], ['hgrain', 'grain']]) {
+
+  // ----- Mode B: investment returns -----
+  function renderInvest({ months, years, ytdWin, orange, notices }) {
+    const baseMonth = `${+months[0].slice(0, 4) - 1}-12`;
+    const adj = Object.fromEntries(Object.entries(H.spy).map(([m, v]) => [m, v[1]]));
+    const price = Object.fromEntries(Object.entries(H.spy).map(([m, v]) => [m, v[0]]));
+    if (!adj[baseMonth]) { notices.push(['warn', `SPY close for ${MON_LONG(baseMonth)} is missing; re-run npm run fetch:history.`]); renderNotices(notices); return; }
+    const tr = V.calendarReturns(adj, months), pr = V.calendarReturns(price, months);
+    const full = years.filter((w) => !w.partial);
+    const endFull = full.at(-1);
+    const nYears = full.length;
+    const trEnd = endFull ? V.indexOf(adj[endFull.months.at(-1)], adj[baseMonth]) : null;
+    const trCagr = endFull ? V.cagr(adj[baseMonth], adj[endFull.months.at(-1)], nYears) : null;
+    const ytd = ytdWin ? tr.at(-1) : null;
+
+    notices.push(['info', 'Housing has no investment return here: a real estate return needs rental income, financing and leverage, property tax, insurance, maintenance and transaction costs, which this data doesn\'t include. Home price growth is not ROI.']);
+    $('#hist-sub').textContent = `Investment returns: SPY with dividends reinvested, month-end to month-end from ${monthEndText(baseMonth)}. `
+      + 'Stored only on this computer and not part of the online site.';
+
+    const tile = (label, color, value, lines) => `<div class="vs-tile"><div class="label">${color ? `<i style="background:${color}"></i>` : ''}${label}</div>
+      <div class="value">${value}</div>${lines.map((l) => `<div class="delta">${l}</div>`).join('')}</div>`;
+    $('#vs-tiles').innerHTML =
+      tile(`SPY total return · ${monthEndText(baseMonth)} – ${endFull ? monthEndText(endFull.months.at(-1)) : '–'}`, orange, cumText(trEnd),
+        [trCagr != null ? `${pctN(trCagr)} per year over ${nYears} full years` : '–', 'Dividends included (reinvested)'])
+      + tile(`SPY ${ytdWin ? `${ytdWin.year} year-to-date` : 'latest year'}`, orange, ytd ? pctN(ytd.ret) : '–',
+        [ytd ? `${monthEndText(`${+ytdWin.year - 1}-12`)} – ${monthEndText(ytd.endMonth)} · provisional` : '', 'Dividends included (reinvested)'])
+      + tile('Real estate total return', null, 'Not available',
+        ['Needs rent, costs, financing and leverage', 'Home price growth alone is not an investment return']);
+
+    let labels, series, describe, defaultIdx, hollow;
+    if (hstate.grain === 'year') {
+      labels = years.map((w) => (w.partial ? `${w.year} YTD` : w.year));
+      series = years.map((w) => V.indexOf(adj[w.months.at(-1)], adj[baseMonth]));
+      hollow = new Set(years.map((w, i) => (w.partial ? i : -1)));
+      describe = (i, isDefault) => `<span class="ro-title">${labels[i]}</span>`
+        + roKey(orange, 'SPY total return', `index ${idxText(series[i])} <span class="ro-sub">(${cumText(series[i])} since ${MON_LONG(baseMonth)})</span>`)
+        + `<span class="ro-rate">${years[i].partial ? 'year-to-date' : 'calendar year'} <b>${pctN(tr[i].ret)}</b> · price only ${pctN(pr[i].ret)}</span>` + roHint(isDefault);
+      defaultIdx = years.length - 1;
+    } else {
+      labels = months;
+      series = V.pointIndex(adj, baseMonth, months);
+      describe = (i, isDefault) => `<span class="ro-title">${MON_LONG(months[i])}</span>`
+        + roKey(orange, 'SPY total return', `index ${idxText(series[i])} <span class="ro-sub">(${cumText(series[i])})</span>`)
+        + `<span class="ro-rate">close $${price[months[i]]?.toFixed(2) ?? '–'}</span>` + roHint(isDefault);
+      defaultIdx = months.length - 1;
+    }
+    const group = readoutGroup($('#hist-readout'), describe, defaultIdx);
+    lineChart('hist-chart', labels, series, labels.map(() => null), {
+      curLabel: 'SPY total return', priorLabel: '', axisFmt: (v) => `${v}`, group, colors: [orange, css('--series-prior')], hollow,
+      dense: hstate.grain === 'month', xTick: hstate.grain === 'month' ? (_, i) => (labels[i]?.endsWith('-01') ? labels[i].slice(0, 4) : '') : undefined,
+    });
+    showReadout(group, null, null);
+    $('#hist-legend').innerHTML = legendKey(orange, `SPY total return, dividends reinvested (Yahoo Finance) · ${MON_LONG(baseMonth)} = 100`);
+
+    $('#hist-head').innerHTML = ['Year', 'Period', 'SPY close (period end)', 'Price return', 'Total return', 'From dividends', 'Total return index'].map((h) => `<th>${h}</th>`).join('');
+    $('#hist-table tbody').innerHTML = years.map((w, i) => `<tr><td>${w.partial ? `<span class="chip">${w.year} YTD</span>` : w.year}</td>
+        <td>${w.partial ? `Dec 31 – ${monthEndText(w.months.at(-1))}` : 'Dec 31 – Dec 31'}</td>
+        <td>$${price[w.months.at(-1)]?.toFixed(2) ?? '–'}</td><td>${pill(pr[i].ret)}</td><td>${pill(tr[i].ret)}</td>
+        <td>${tr[i].ret != null && pr[i].ret != null ? pctN(tr[i].ret - pr[i].ret, 2) : '–'}</td><td><b>${idxText(V.indexOf(adj[w.months.at(-1)], adj[baseMonth]))}</b></td></tr>`).reverse().join('');
+    renderNotices(notices);
+  }
+
+  function renderNotices(list) {
+    $('#hist-notices').innerHTML = list.map(([kind, text]) => `<li class="${kind}">${text}</li>`).join('');
+  }
+  for (const [attr, key] of [['hmode', 'mode'], ['hhome', 'home'], ['hspy', 'spy'], ['hgrain', 'grain']]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
       btn.addEventListener('click', () => {
         hstate[key] = btn.dataset[attr];

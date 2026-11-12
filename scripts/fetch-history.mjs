@@ -1,5 +1,5 @@
 // LOCAL ONLY. Downloads closed residential sales month by month since Jan 2015 (the MLS feed is
-// complete from then on) plus SPY monthly closes, and writes data/history.js for the dashboard's
+// complete from then on) plus SPY monthly closes and FHFA county HPI, and writes data/history.js for the dashboard's
 // "Homes vs. S&P 500" section.
 //
 //   npm run fetch:history
@@ -62,7 +62,10 @@ const zips = [...zipIndex.keys()].map((zip, i) => {
 // return. Yahoo Finance chart endpoint (no key; unofficial, so a failure only skips the SPY series).
 const spy = {};
 try {
-  const p1 = Math.floor(Date.parse(`${months[0]}-01T00:00:00Z`) / 1000);
+  // One month before the first year: the Dec close is the base for point-to-point total return.
+  const start = new Date(`${months[0]}-01T00:00:00Z`);
+  start.setUTCMonth(start.getUTCMonth() - 1);
+  const p1 = Math.floor(start / 1000);
   const p2 = Math.floor(Date.now() / 1000);
   const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/SPY?period1=${p1}&period2=${p2}&interval=1mo&events=div`, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -80,7 +83,32 @@ try {
   console.warn(`SPY skipped: ${err.message}`);
 }
 
-const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy };
+// FHFA All-Transactions House Price Index (repeat-sales), annual, per county - via FRED, no key.
+// Single-family properties only; includes refinance appraisals. No Bay Area composite exists, so the
+// dashboard only offers it for a single county.
+const COUNTY_FIPS = {
+  'Santa Clara': '06085', 'San Mateo': '06081', 'San Francisco': '06075', Alameda: '06001', 'Contra Costa': '06013',
+  Marin: '06041', Napa: '06055', Solano: '06095', Sonoma: '06097',
+};
+const hpi = {};
+for (const [county, fips] of Object.entries(COUNTY_FIPS)) {
+  const id = `ATNHPIUS${fips}A`;
+  try {
+    const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${+months[0].slice(0, 4) - 1}-01-01`);
+    if (!res.ok) throw new Error(`FRED ${res.status}`);
+    const values = {};
+    for (const line of (await res.text()).trim().split(/\r?\n/).slice(1)) {
+      const [date, v] = line.split(',');
+      if (v && v !== '.') values[date.slice(0, 4)] = Number(v);
+    }
+    hpi[county] = { series: id, values };
+  } catch (err) {
+    console.warn(`FHFA HPI ${county} skipped: ${err.message}`);
+  }
+}
+console.log(`FHFA HPI: ${Object.keys(hpi).length} counties, through ${Math.max(...Object.values(hpi).flatMap((h) => Object.keys(h.values).map(Number)))}`);
+
+const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy, hpi };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 const out = join(ROOT, 'data', 'history.js');
 writeFileSync(out, `window.HISTORY_DATA = ${JSON.stringify(payload)};\n`);

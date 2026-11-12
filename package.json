@@ -15,6 +15,7 @@
     "fetch:rentcast": "node scripts/fetch-rentcast.mjs",
     "mock": "node scripts/mock-data.mjs",
     "serve": "node scripts/serve.mjs",
-    "fetch:history": "node scripts/fetch-history.mjs"
+    "fetch:history": "node scripts/fetch-history.mjs",
+    "test": "node --test \"test/**/*.test.mjs\""
   }
 }

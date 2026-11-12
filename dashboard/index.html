@@ -122,19 +122,26 @@
 
   <!-- Local-only: shown only when opened from file:// or localhost with data/history.js present. -->
   <section class="card history-card" id="history-card" hidden>
-    <div class="card-title spread">
+    <div class="card-title">
       <span class="icon-tile" data-icon="trend"></span>
       <div>
         <h2>Homes vs. S&amp;P 500 (SPY) <span class="local-badge" title="data/history.js stays on this computer and is never part of the online site">Local only</span></h2>
         <p class="card-sub" id="hist-sub"></p>
       </div>
-      <div class="seg" role="group" aria-label="Home price measure">
-        <button type="button" data-hhome="avg" aria-pressed="true">Avg price</button>
-        <button type="button" data-hhome="median" aria-pressed="false">Median price</button>
+    </div>
+    <div class="vs-controls">
+      <div class="seg" role="group" aria-label="Comparison mode">
+        <button type="button" data-hmode="price" aria-pressed="true">Market price comparison</button>
+        <button type="button" data-hmode="invest" aria-pressed="false">Investment returns</button>
       </div>
-      <div class="seg" role="group" aria-label="SPY return">
+      <div class="seg" role="group" aria-label="Housing measure" id="hist-home-seg">
+        <button type="button" data-hhome="avg" aria-pressed="true">Avg sale price</button>
+        <button type="button" data-hhome="median" aria-pressed="false">Median sale price</button>
+        <button type="button" data-hhome="hpi" aria-pressed="false">FHFA HPI</button>
+      </div>
+      <div class="seg" role="group" aria-label="SPY measure" id="hist-spy-seg">
         <button type="button" data-hspy="price" aria-pressed="true">SPY price</button>
-        <button type="button" data-hspy="total" aria-pressed="false">+ dividends</button>
+        <button type="button" data-hspy="total" aria-pressed="false">Total return (dividends reinvested)</button>
       </div>
       <div class="seg" role="group" aria-label="Granularity">
         <button type="button" data-hgrain="year" aria-pressed="true">Yearly</button>
@@ -142,9 +149,10 @@
       </div>
     </div>
     <div id="hist-body">
+      <ul class="vs-notices" id="hist-notices"></ul>
       <div class="vs-tiles" id="vs-tiles"></div>
       <div class="readout" id="hist-readout" aria-live="polite"></div>
-      <div class="chart-box tall"><canvas id="hist-chart" role="img" aria-label="Homes vs SPY, indexed to 2015 = 100"></canvas></div>
+      <div class="chart-box tall"><canvas id="hist-chart" role="img" aria-label="Homes vs SPY index chart"></canvas></div>
       <div class="legend" id="hist-legend"></div>
       <div class="table-wrap">
         <table class="data-table" id="hist-table">
@@ -152,7 +160,18 @@
           <tbody></tbody>
         </table>
       </div>
-      <p class="card-sub" id="hist-note"></p>
+      <p class="card-sub" id="hist-cutoff"></p>
+      <details class="method">
+        <summary>How this comparison works</summary>
+        <ul>
+          <li><b>Two modes.</b> <i>Market price comparison</i> puts housing and SPY price levels on one scale (Index = value ÷ 2015 value × 100). It is a price comparison, not an investment return comparison. <i>Investment returns</i> shows what an investor in SPY actually earned, with dividends reinvested.</li>
+          <li><b>Housing prices.</b> <i>Avg / Median sale price</i> come from MLSListings closed sales for your filters. They move with the <i>mix</i> of homes sold (size, location, type), so they are not the same as appreciation of a given home. <i>FHFA HPI</i> is a repeat-sales index (the same houses sold or appraised more than once), so it measures appreciation more directly — but it is county-level, annual, and single-family only.</li>
+          <li><b>SPY.</b> <i>SPY price</i> uses closing prices without dividends. <i>Total return</i> uses dividend-adjusted closes, so dividends are assumed reinvested. In price mode yearly values are averages of monthly closes (to match yearly average home prices); in investment mode returns run month-end to month-end (Dec 31 to Dec 31 for a calendar year).</li>
+          <li><b>Not included.</b> Rental income, mortgage financing and leverage, property tax, insurance, maintenance, and transaction costs. That's why housing has no investment return here.</li>
+          <li><b>Partial years.</b> Only complete months are used. A year-to-date value is compared with the same months of the previous year (e.g. Jan–Oct vs. Jan–Oct) and its index is provisional. Growth rates (CAGR) use full years only.</li>
+          <li><b>Sources &amp; updates.</b> MLSListings RESO Web API; SPY monthly closes from Yahoo Finance; FHFA All-Transactions HPI via FRED. All refreshed when you run <code>npm run fetch:history</code>.</li>
+        </ul>
+      </details>
     </div>
     <p class="card-sub" id="hist-empty" hidden>No history data yet. Run <code>npm run fetch:history</code> (about 15 minutes the first time), then reload.</p>
   </section>
@@ -182,6 +201,7 @@
 <script src="../data/sales.js" onerror="window.MARKET_DATA = null"></script>
 <script src="../data/rates.js" onerror="window.RATE_DATA = null"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="vs-calc.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
