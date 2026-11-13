@@ -159,7 +159,9 @@
     for (let t = 1; t <= N; t++) {
       const avgV = (values[t - 1] + values[t]) / 2;
       const tax = P0 * a.taxRate * Math.pow(1 + a.taxGrowth, t - 1);
-      const ins = avgV * a.insRate, maint = avgV * a.maintRate, rent = avgV * a.rentYield;
+      // rentYield may be one number or a per-year array (measured yields, year 1..N).
+      const ry = Array.isArray(a.rentYield) ? a.rentYield[t - 1] ?? 0 : a.rentYield;
+      const ins = avgV * a.insRate, maint = avgV * a.maintRate, rent = avgV * ry;
       totals.mortgage += pi; totals.tax += tax; totals.insurance += ins; totals.maintenance += maint; totals.rent += rent;
       flows.push(rent - pi - tax - ins - maint);
     }
@@ -177,8 +179,38 @@
     };
   }
 
+  // ---------- rentals ----------
+
+  /** The 12 complete months ending at `lastMonth`, and the 12 before them. */
+  function trailing12(lastMonth) {
+    const out = [];
+    const d = new Date(`${lastMonth}-01T00:00:00Z`);
+    for (let k = 0; k < 24; k++) {
+      out.unshift(d.toISOString().slice(0, 7));
+      d.setUTCMonth(d.getUTCMonth() - 1);
+    }
+    return { prior: out.slice(0, 12), cur: out.slice(12) };
+  }
+
+  /**
+   * Gross rent yield = median monthly rent × 12 ÷ median sale price, computed per property type and
+   * combined using sales counts as weights, so a rental pool that is more condo-heavy than the sales
+   * pool doesn't drag the yield down. groups: { type: { rents: [], prices: [] } }. Types with fewer
+   * than `minN` rents or sales are skipped. Returns { yield, parts } or null.
+   */
+  function typeWeightedYield(groups, minN = 5) {
+    const parts = [];
+    for (const [type, g] of Object.entries(groups)) {
+      if (g.rents.length < minN || g.prices.length < minN) continue;
+      parts.push({ type, yield: (median(g.rents) * 12) / median(g.prices), weight: g.prices.length, rents: g.rents.length });
+    }
+    const w = parts.reduce((a, p) => a + p.weight, 0);
+    if (!w) return null;
+    return { yield: parts.reduce((a, p) => a + p.yield * p.weight, 0) / w, parts };
+  }
+
   root.VsCalc = {
     mean, median, lastCompleteMonth, yearWindows, samePeriodLastYear, indexOf, cagr, annualLevels, pointIndex, calendarReturns,
-    mortgagePayment, loanBalance, irr, ownerReturn,
+    mortgagePayment, loanBalance, irr, ownerReturn, trailing12, typeWeightedYield,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

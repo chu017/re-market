@@ -144,3 +144,31 @@ test('owner return rejects incomplete inputs', () => {
   assert.equal(C.ownerReturn([100, null], 0.05, NO_COSTS), null);
   assert.equal(C.ownerReturn([0, 100], 0.05, NO_COSTS), null);
 });
+
+test('trailing12 returns the 12 months ending at the last complete month and the 12 before', () => {
+  const { cur, prior } = C.trailing12('2026-10');
+  assert.equal(cur.length, 12);
+  assert.equal(cur[0], '2025-11');
+  assert.equal(cur.at(-1), '2026-10');
+  assert.equal(prior[0], '2024-11');
+  assert.equal(prior.at(-1), '2025-10');
+});
+
+test('type-weighted yield weights each type by its sales count', () => {
+  const g = {
+    'Single Family': { rents: Array(10).fill(5000), prices: Array(30).fill(2_000_000) }, // 3.0%
+    Condo: { rents: Array(10).fill(3000), prices: Array(10).fill(800_000) }, // 4.5%
+    Other: { rents: [1000], prices: [100_000] }, // too few - skipped
+  };
+  const r = C.typeWeightedYield(g);
+  close(r.yield, (0.03 * 30 + 0.045 * 10) / 40);
+  assert.equal(r.parts.length, 2);
+  assert.equal(C.typeWeightedYield({ X: { rents: [1], prices: [1] } }), null);
+});
+
+test('owner return accepts per-year rent yields', () => {
+  const flat = C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, rentYield: 0.03 }).irr;
+  const arr = C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, rentYield: [0.03, 0.03] }).irr;
+  close(flat, arr, 1e-9);
+  assert.ok(C.ownerReturn([100, 110, 121], 0.05, { ...NO_COSTS, rentYield: [0.03, 0.05] }).irr > flat);
+});

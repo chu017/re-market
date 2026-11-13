@@ -9,6 +9,11 @@ export const BAY_AREA = ['SanFrancisco', 'SanMateo', 'SantaClara', 'Alameda', 'C
 export const MIN_PRICE = 50_000; // drops nominal transfers that aren't market sales
 
 const SELECT = ['ListingKeyNumeric', 'ListingId', 'ClosePrice', 'CloseDate', 'PostalCode', 'City', 'CountyOrParish', 'PropertyType', 'PropertySubType', 'LivingArea'];
+// What each kind of fetch asks for. For leases, ClosePrice is the agreed monthly rent.
+const KINDS = {
+  sales: { types: "('Residential','ResidentialIncome')", cachePrefix: 'mls', select: SELECT },
+  leases: { types: "('ResidentialLease')", cachePrefix: 'mls-lease', select: [...SELECT, 'ListPrice', 'BedroomsTotal'] },
+};
 
 // "SantaClara" -> "Santa Clara", "PortolaValley" -> "Portola Valley"
 export const pretty = (s) => (s ?? '').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
@@ -76,11 +81,11 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
    * All closed residential listings closing in [start, end]. The server caps pages at 50 rows and
    * its nextLink shrinks $top, so we page by key instead: ListingKeyNumeric gt <last seen>.
    */
-  async function fetchRange(start, end, label) {
+  async function fetchRange(start, end, label, kind = 'sales') {
     const filter = [
       "StandardStatus eq 'Closed'",
       `CloseDate ge ${start} and CloseDate le ${end}`,
-      "PropertyType in ('Residential','ResidentialIncome')",
+      `PropertyType in ${KINDS[kind].types}`,
       `CountyOrParish in (${counties.map((c) => `'${c}'`).join(',')})`,
     ].join(' and ');
     const expected = (await get({ $filter: filter, $top: '0', $count: 'true' }))['@odata.count'];
@@ -91,7 +96,7 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
       const page = await get({
         $filter: `${filter} and ListingKeyNumeric gt ${last}`,
         $orderby: 'ListingKeyNumeric',
-        $select: SELECT.join(','),
+        $select: KINDS[kind].select.join(','),
         $top: '300',
       });
       if (!page.value?.length) break;
@@ -100,26 +105,26 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
       if (process.stdout.isTTY) process.stdout.write(`\r  ${label}: ${rows.length}/${expected}`);
     }
     if (process.stdout.isTTY) process.stdout.write('\r');
-    console.log(`  ${label}: ${rows.length} sales${rows.length !== expected ? ` (WARNING: server reported ${expected})` : ''}`);
+    console.log(`  ${label}: ${rows.length} closed${rows.length !== expected ? ` (WARNING: server reported ${expected})` : ''}`);
     return rows;
   }
 
-  /** One calendar month ('YYYY-MM'), from cache when fresh enough. */
-  async function fetchMonth(month) {
+  /** One calendar month ('YYYY-MM') of 'sales' or 'leases', from cache when fresh enough. */
+  async function fetchMonth(month, kind = 'sales') {
     const monthEnd = isoDate(new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7), 0)));
     const end = monthEnd < today ? monthEnd : today;
-    const file = join(cacheDir, `mls-${counties.join('_')}-${month}.json`);
+    const file = join(cacheDir, `${KINDS[kind].cachePrefix}-${counties.join('_')}-${month}.json`);
     if (!refresh && existsSync(file)) {
       const cached = JSON.parse(readFileSync(file, 'utf8'));
       const ageDays = (Date.now() - statSync(file).mtimeMs) / DAY_MS;
       const isOld = (Date.parse(today) - Date.parse(monthEnd)) / DAY_MS > 180;
       const fresh = end === monthEnd ? ageDays < (isOld ? oldCacheDays : cacheDays) : cached.fetchedOn === today;
       if (cached.through === end && fresh) {
-        console.log(`  ${month}: ${cached.rows.length} sales (cached)`);
+        console.log(`  ${month}: ${cached.rows.length} ${kind} (cached)`);
         return cached.rows;
       }
     }
-    const rows = await fetchRange(`${month}-01`, end, month);
+    const rows = await fetchRange(`${month}-01`, end, kind === 'sales' ? month : `${month} ${kind}`, kind);
     writeFileSync(file, JSON.stringify({ through: end, fetchedOn: today, rows }));
     return rows;
   }

@@ -18,6 +18,7 @@
     tv: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
     exit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
     history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/>',
+    key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
     check: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m8 12.5 2.8 2.8L16.5 9.5" stroke="#fff" stroke-width="2.4"/>',
   };
   const icon = (name) =>
@@ -672,7 +673,7 @@
   const V = window.VsCalc;
   const hstate = { mode: 'price', home: 'avg', spy: 'price', grain: 'year' };
   // Buyer-owner assumptions, in percent. Defaults: 20% down, Bay Area-ish rent yield, CA Prop 13 tax.
-  const ASSUME_DEFAULTS = { down: 20, rentYield: 3, taxRate: 1.15, taxGrowth: 2, insRate: 0.25, maintRate: 1, buyCost: 1, sellCost: 5 };
+  const ASSUME_DEFAULTS = { measuredRent: true, down: 20, rentYield: 3, taxRate: 1.15, taxGrowth: 2, insRate: 0.25, maintRate: 1, buyCost: 1, sellCost: 5 };
   let assume = { ...ASSUME_DEFAULTS };
   try { assume = { ...ASSUME_DEFAULTS, ...JSON.parse(localStorage.getItem('re-market:assume') || '{}') }; } catch { /* storage unavailable */ }
   const saveAssume = () => { try { localStorage.setItem('re-market:assume', JSON.stringify(assume)); } catch { /* ignore */ } };
@@ -680,8 +681,8 @@
   if (IS_LOCAL) {
     const tag = document.createElement('script');
     tag.src = '../data/history.js';
-    tag.onload = () => { H = window.HISTORY_DATA ?? null; renderHistory(); };
-    tag.onerror = () => renderHistory();
+    tag.onload = () => { H = window.HISTORY_DATA ?? null; renderHistory(); renderRentals(); };
+    tag.onerror = () => { renderHistory(); renderRentals(); };
     document.head.appendChild(tag);
   }
   const MON_LONG = (ym) => `${MON[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
@@ -943,17 +944,37 @@
     const rateVals = H.months.filter((m) => m.startsWith(baseYear)).map((m) => H.rates?.[m]).filter((v) => v != null);
     if (!rateVals.length) return { baseYear, endYear, why: `Mortgage rate for ${baseYear} is missing; re-run npm run fetch:history` };
     const rate = V.mean(rateVals) / 100;
-    const a = Object.fromEntries(Object.entries(assume).map(([k, v]) => [k, (Number(v) || 0) / 100]));
+    const a = Object.fromEntries(Object.entries(assume).filter(([k]) => k !== 'measuredRent').map(([k, v]) => [k, (Number(v) || 0) / 100]));
+    // Measured rent: each holding year spans mid-(y-1) to mid-y, so use the average of those two
+    // calendar years' gross yields (current filters, all bedrooms).
+    let rentNote = `${assume.rentYield}% of value (manual)`;
+    if (assume.measuredRent) {
+      const yields = full.map((w) => rentYieldFor(w.months)?.yield ?? null);
+      const perYear = yields.slice(1).map((y, k) => (y != null && yields[k] != null ? (y + yields[k]) / 2 : null));
+      if (perYear.length && perYear.every((v) => v != null)) {
+        a.rentYield = perYear;
+        rentNote = `measured MLS yield, avg ${(V.mean(perYear) * 100).toFixed(2)}% of value`;
+      } else {
+        rentNote = `${assume.rentYield}% of value (manual — not enough lease data for these filters)`;
+      }
+    }
     const r = V.ownerReturn(values, rate, a);
     // SPY total return over the same holding window (mid-year to mid-year).
     const s0 = H.spy[`${baseYear}-06`]?.[1], s1 = H.spy[`${endYear}-06`]?.[1];
     const spyCagr = V.cagr(s0, s1, +endYear - +baseYear);
-    return { baseYear, endYear, P0, rate, values, r, spyCagr, pathNote, why: r ? null : 'Incomplete price data for the holding period' };
+    return { baseYear, endYear, P0, rate, values, r, spyCagr, pathNote, rentNote, why: r ? null : 'Incomplete price data for the holding period' };
   }
 
   function renderOwnerTable(owner) {
     const form = $('#hist-assume');
-    for (const [k, v] of Object.entries(assume)) if (form.elements[k] && document.activeElement !== form.elements[k]) form.elements[k].value = v;
+    for (const [k, v] of Object.entries(assume)) {
+      const el = form.elements[k];
+      if (!el || document.activeElement === el) continue;
+      if (el.type === 'checkbox') el.checked = !!v;
+      else el.value = v;
+    }
+    form.elements.rentYield.disabled = !!assume.measuredRent;
+    $('#hist-measured').textContent = owner?.rentNote?.startsWith('measured') ? `(${owner.rentNote.replace('measured MLS yield, ', '')})` : '';
     const r = owner?.r;
     if (!r) { $('#hist-owner-table tbody').innerHTML = `<tr><td>${owner?.why ?? 'Not enough data'}</td></tr>`; return; }
     const t = r.totals;
@@ -963,7 +984,7 @@
       ['Loan', `${money(r.loan)} at ${(owner.rate * 100).toFixed(2)}% <span class="ro-sub">(${owner.baseYear} avg 30-yr rate)</span>`],
       [`Mortgage payments, ${r.years} yrs`, `−${money(t.mortgage)}`],
       ['Property tax + insurance + maintenance', `−${money(t.tax + t.insurance + t.maintenance)}`],
-      ['Rent saved', `+${money(t.rent)}`],
+      ['Rent saved', `+${money(t.rent)} <span class="ro-sub">(${owner.rentNote})</span>`],
       ['Sale price', `${money(r.sale)} <span class="ro-sub">(mid-${owner.endYear})</span>`],
       ['Net from sale', `${money(r.saleNet)} <span class="ro-sub">(after selling costs and ${money(r.balance)} loan payoff)</span>`],
       ['Annual return (IRR)', `<b>${pctN(r.irr)}</b> <span class="ro-sub">vs SPY ${pctN(owner.spyCagr)} same dates</span>`],
@@ -972,11 +993,170 @@
   }
   $('#hist-assume').addEventListener('input', (e) => {
     if (!e.target.name) return;
-    assume[e.target.name] = e.target.value === '' ? 0 : Number(e.target.value);
+    assume[e.target.name] = e.target.type === 'checkbox' ? e.target.checked : e.target.value === '' ? 0 : Number(e.target.value);
     saveAssume();
     renderHistory();
   });
   $('#hist-assume-reset').addEventListener('click', () => { assume = { ...ASSUME_DEFAULTS }; saveAssume(); renderHistory(); });
+
+  // ---------- rentals (local only) ----------
+  const rstate = { metric: 'rent', beds: 'all', group: 'city' };
+  const bedsOk = (b) => rstate.beds === 'all' || (rstate.beds === '1' ? b >= 0 && b <= 1 : rstate.beds === '4' ? b >= 4 : b === +rstate.beds);
+
+  /** Leases and sales matching the dashboard filters, bucketed by month. */
+  function rentPools() {
+    const okZip = H.zips.map(([zip, city, county]) =>
+      (!state.county || county === state.county) && (!state.city || city === state.city) && (!state.zip || zip === state.zip));
+    const okType = H.types.map((t) => !state.type || state.type.split('|').includes(t));
+    return { okZip, okType };
+  }
+
+  /** Gross yield for a set of months (current filters, all bedrooms), weighted by property type. */
+  function rentYieldFor(months, zipFilter) {
+    if (!H?.leases) return null;
+    const { okZip, okType } = rentPools();
+    const set = new Set(months.map((m) => H.months.indexOf(m)));
+    const groups = {};
+    const g = (t) => (groups[H.types[t]] ??= { rents: [], prices: [] });
+    const L = H.leases, R = H.rows;
+    for (let i = 0; i < L.length; i += 6) {
+      if (!set.has(L[i + 1]) || !okZip[L[i]] || !okType[L[i + 2]] || (zipFilter && !zipFilter(L[i]))) continue;
+      g(L[i + 2]).rents.push(L[i + 3]);
+    }
+    for (let i = 0; i < R.length; i += 4) {
+      if (!set.has(R[i + 1]) || !okZip[R[i]] || !okType[R[i + 2]] || (zipFilter && !zipFilter(R[i]))) continue;
+      g(R[i + 2]).prices.push(R[i + 3] * 1000);
+    }
+    return V.typeWeightedYield(groups);
+  }
+
+  function renderRentals() {
+    if (!IS_LOCAL) return;
+    $('#rent-card').hidden = false;
+    const ready = !!(H?.leases?.length && V);
+    $('#rent-body').hidden = !ready;
+    $('#rent-empty').hidden = ready;
+    if (!ready) return;
+    const blue = css('--series-1');
+    const { okZip, okType } = rentPools();
+    const lastMonth = V.lastCompleteMonth(H.through);
+    const months = H.months.filter((m) => m <= lastMonth);
+    const years = V.yearWindows(months);
+    const mIdx = new Map(H.months.map((m, i) => [m, i]));
+
+    // Leases matching filters + bedrooms, by month index: [rent, sqft]
+    const byMonth = new Map();
+    const L = H.leases;
+    for (let i = 0; i < L.length; i += 6) {
+      if (!okZip[L[i]] || !okType[L[i + 2]] || !bedsOk(L[i + 4])) continue;
+      (byMonth.get(L[i + 1]) ?? byMonth.set(L[i + 1], []).get(L[i + 1])).push([L[i + 3], L[i + 5]]);
+    }
+    const leasesIn = (ms) => ms.flatMap((m) => byMonth.get(mIdx.get(m)) ?? []);
+    const stats = (ms) => {
+      const l = leasesIn(ms);
+      const withSqft = l.filter(([, s]) => s > 0);
+      return { n: l.length, rent: V.median(l.map(([r]) => r)), psf: withSqft.length ? V.median(withSqft.map(([r, s]) => r / s)) : null };
+    };
+    const salesMedian = (ms) => {
+      const set = new Set(ms.map((m) => mIdx.get(m)));
+      const p = [];
+      for (let i = 0; i < H.rows.length; i += 4) if (set.has(H.rows[i + 1]) && okZip[H.rows[i]] && okType[H.rows[i + 2]]) p.push(H.rows[i + 3] * 1000);
+      return V.median(p);
+    };
+
+    const bedsLabel = { all: 'all bedrooms', 1: 'studio / 1 bd', 2: '2 bd', 3: '3 bd', 4: '4+ bd' }[rstate.beds];
+    const notices = [
+      ['info', 'Closed MLS leases only — mostly houses, condos and townhouses leased through agents. Apartment buildings and landlord-direct rentals are not included, so this reflects the single-family / condo rental market.'],
+      ['info', `Gross yield = median rent × 12 ÷ median sale price, computed per property type and weighted by sales mix (all bedrooms, before costs). ${H.leaseDropped ? `Removed as likely mis-entries: ${num((H.leaseDropped.range ?? 0) + (H.leaseDropped.vsList ?? 0) + (H.leaseDropped.perSqft ?? 0))} leases.` : ''}`],
+    ];
+    if (rstate.beds !== 'all' && rstate.metric === 'yield') notices.push(['warn', 'Gross yield always uses all bedrooms, because sale records here have no bedroom count.']);
+    $('#rent-notices').innerHTML = notices.map(([k, t]) => `<li class="${k}">${t}</li>`).join('');
+
+    // Tiles: last 12 complete months vs the 12 before.
+    const { cur: c12, prior: p12 } = V.trailing12(lastMonth);
+    const sc = stats(c12), sp = stats(p12);
+    const yc = rentYieldFor(c12), yp = rentYieldFor(p12);
+    const span = `${MON_LONG(c12[0])} – ${MON_LONG(c12.at(-1))}`;
+    const tile = (label, value, lines) => `<div class="vs-tile"><div class="label">${label}</div><div class="value">${value}</div>${lines.map((l) => `<div class="delta">${l}</div>`).join('')}</div>`;
+    const pts2 = (a, b) => (a == null || b == null ? '–' : `${a >= b ? '+' : '−'}${Math.abs((a - b) * 100).toFixed(2)} pt`);
+    $('#rent-tiles').innerHTML =
+      tile(`Median rent · ${bedsLabel}`, sc.rent ? `$${num(sc.rent)}/mo` : '–', [`${pill(yoy(sc.rent, sp.rent))} vs prior 12 months ($${num(sp.rent)})`, span])
+      + tile('Rent per sqft', sc.psf ? `$${sc.psf.toFixed(2)}` : '–', [`${pill(yoy(sc.psf, sp.psf))} vs prior 12 months`, 'Median, monthly'])
+      + tile('Gross rent yield', yc ? `${(yc.yield * 100).toFixed(2)}%` : '–', [`${pts2(yc?.yield, yp?.yield)} vs prior 12 months`, 'Rent × 12 ÷ price, before costs'])
+      + tile('Leases', num(sc.n), [`${pill(yoy(sc.n, sp.n))} vs prior 12 months`, 'Closed MLS leases']);
+
+    // Yearly series (YTD year: same months as the YTD; YoY vs same months last year).
+    const yr = years.map((w) => {
+      const s = stats(w.months);
+      const prev = w.partial ? stats(V.samePeriodLastYear(w.months)) : null;
+      return { w, ...s, prevRent: prev?.rent, price: salesMedian(w.months), yld: rentYieldFor(w.months)?.yield ?? null };
+    });
+    yr.forEach((r, i) => { if (!r.w.partial && i) r.prevRent = yr[i - 1].rent; });
+    const metricVal = (r) => ({ rent: r.rent, psf: r.psf, yield: r.yld != null ? r.yld * 100 : null })[rstate.metric];
+    const fmtMetric = (v) => (v == null ? '–' : rstate.metric === 'rent' ? `$${num(v)}` : rstate.metric === 'psf' ? `$${v.toFixed(2)}` : `${v.toFixed(2)}%`);
+    const metricName = { rent: `Median rent (${bedsLabel})`, psf: `Rent per sqft (${bedsLabel})`, yield: 'Gross rent yield' }[rstate.metric];
+    const labels = yr.map((r) => (r.w.partial ? `${r.w.year} YTD` : r.w.year));
+    const series = yr.map(metricVal);
+    const group = readoutGroup($('#rent-readout'), (i, isDefault) => {
+      const r = yr[i];
+      return `<span class="ro-title">${labels[i]}${r.w.partial ? ' <span class="ro-sub">(provisional)</span>' : ''}</span>`
+        + roKey(blue, metricName, fmtMetric(series[i]))
+        + (rstate.metric === 'rent' && yoy(r.rent, r.prevRent) != null ? `${pill(yoy(r.rent, r.prevRent))}<span>${r.w.partial ? 'vs same months last year' : 'vs prior year'}</span>` : '')
+        + `<span class="ro-rate">${num(r.n)} leases · median sale ${money(r.price)}</span>` + roHint(isDefault);
+    }, yr.length - 1);
+    lineChart('rent-chart', labels, series, labels.map(() => null), {
+      curLabel: metricName, priorLabel: '', group, colors: [blue, css('--series-prior')],
+      hollow: new Set(yr.map((r, i) => (r.w.partial ? i : -1))),
+      axisFmt: (v) => (rstate.metric === 'rent' ? `$${num(v)}` : rstate.metric === 'psf' ? `$${(+v).toFixed(1)}` : `${(+v).toFixed(1)}%`),
+    });
+    showReadout(group, null, null);
+    $('#rent-sub').textContent = `${metricName} by year since ${years[0]?.year} for the current filters. Stored only on this computer and not part of the online site.`;
+    $('#rent-year-table tbody').innerHTML = [...yr].reverse().map((r) => `<tr>
+      <td>${r.w.partial ? `<span class="chip">${r.w.year} YTD</span>` : r.w.year}</td>
+      <td>${r.w.partial ? `${MON[0]}–${MON[r.w.months.length - 1]}` : 'Full year'}</td>
+      <td>${num(r.n)}</td><td>${r.rent ? `$${num(r.rent)}` : '–'}</td><td>${pill(yoy(r.rent, r.prevRent))}</td>
+      <td>${r.psf ? `$${r.psf.toFixed(2)}` : '–'}</td><td>${money(r.price)}</td><td>${r.yld != null ? `${(r.yld * 100).toFixed(2)}%` : '–'}</td></tr>`).join('');
+
+    // Area table: last 12 months by city or zip, highest yield first; areas need 5+ leases.
+    const byCity = rstate.group === 'city';
+    const keyOf = (zi) => (byCity ? `${H.zips[zi][1]}|${H.zips[zi][2]}` : H.zips[zi][0]);
+    const set12 = new Set(c12.map((m) => mIdx.get(m))), setP = new Set(p12.map((m) => mIdx.get(m)));
+    const areas = new Map();
+    const A = (k) => areas.get(k) ?? areas.set(k, { cur: [], prior: [], zips: new Set() }).get(k);
+    for (let i = 0; i < L.length; i += 6) {
+      if (!okZip[L[i]] || !okType[L[i + 2]] || !bedsOk(L[i + 4])) continue;
+      const bucket = set12.has(L[i + 1]) ? 'cur' : setP.has(L[i + 1]) ? 'prior' : null;
+      if (!bucket) continue;
+      const a = A(keyOf(L[i]));
+      a[bucket].push([L[i + 3], L[i + 5]]);
+      a.zips.add(L[i]);
+    }
+    const MIN_AREA_LEASES = 20;
+    const rows = [...areas].filter(([, a]) => a.cur.length >= MIN_AREA_LEASES).map(([k, a]) => {
+      const rent = V.median(a.cur.map(([r]) => r)), prior = V.median(a.prior.map(([r]) => r));
+      const ws = a.cur.filter(([, s]) => s > 0);
+      const y = rentYieldFor(c12, (zi) => keyOf(zi) === k);
+      return { k, label: byCity ? k.split('|')[0] : k, county: byCity ? k.split('|')[1] : H.zips[[...a.zips][0]][2], city: byCity ? null : H.zips[[...a.zips][0]][1],
+        n: a.cur.length, rent, yoy: a.prior.length >= 5 ? yoy(rent, prior) : null, psf: ws.length ? V.median(ws.map(([r, s]) => r / s)) : null, yld: y?.yield ?? null };
+    }).sort((a, b) => (b.yld ?? -1) - (a.yld ?? -1));
+    $('#rent-area-head').innerHTML = [byCity ? 'City' : 'Zip', byCity ? 'County' : 'City', 'Leases (12 mo)', 'Median rent', 'Rent YoY', 'Rent / sqft', 'Gross yield']
+      .map((h) => `<th>${h}</th>`).join('');
+    $('#rent-area-table tbody').innerHTML = rows.map((r) => `<tr><td>${r.label}</td><td>${byCity ? r.county : r.city}</td><td>${num(r.n)}</td>
+      <td>${r.rent ? `$${num(r.rent)}` : '–'}</td><td>${pill(r.yoy)}</td><td>${r.psf ? `$${r.psf.toFixed(2)}` : '–'}</td>
+      <td>${r.yld != null ? `<b>${(r.yld * 100).toFixed(2)}%</b>` : '–'}</td></tr>`).join('');
+    $('#rent-area-sub').textContent = `Last 12 months (${span}), ${bedsLabel}; highest gross yield first. Higher yield = rent is cheap relative to buying. Areas need ${MIN_AREA_LEASES}+ leases.`;
+    $('#rent-cutoff').textContent = `Data through ${monthEndText(lastMonth)} (last complete month). ${years.at(-1)?.partial ? `${years.at(-1).year} is year-to-date and provisional.` : ''}`;
+  }
+  for (const [attr, key] of [['rmetric', 'metric'], ['rbeds', 'beds'], ['rgroup', 'group']]) {
+    document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
+      btn.addEventListener('click', () => {
+        rstate[key] = btn.dataset[attr];
+        document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        applyChartDefaults();
+        renderRentals();
+      }),
+    );
+  }
 
   function renderNotices(list) {
     $('#hist-notices').innerHTML = list.map(([kind, html]) => `<li class="${kind}">${html}</li>`).join('');
@@ -1027,7 +1207,7 @@
     renderWeekly(rows);
     renderDist(rows);
     renderZipTable();
-    if (H) renderHistory();
+    if (H) { renderHistory(); renderRentals(); }
   }
 
   const updated = new Date(DATA.generatedAt);

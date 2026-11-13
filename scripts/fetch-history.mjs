@@ -1,5 +1,6 @@
 // LOCAL ONLY. Downloads closed residential sales month by month since Jan 2015 (the MLS feed is
-// complete from then on) plus SPY monthly closes, FHFA county HPI and mortgage rates, and writes data/history.js for the dashboard's
+// complete from then on), closed leases (monthly rents), SPY monthly closes, FHFA county HPI and mortgage
+// rates, and writes data/history.js for the dashboard's
 // "Homes vs. S&P 500" section.
 //
 //   npm run fetch:history
@@ -52,6 +53,32 @@ for (const [mi, month] of months.entries()) {
     rows.push(zi, mi, TYPES.indexOf(propertyType(r)), Math.round(r.ClosePrice / 1000));
   }
 }
+// Closed residential leases (ClosePrice = monthly rent): flat ints of
+// [zipIndex, monthIndex, typeIndex, rent, bedrooms (-1 unknown), sqft (0 unknown)] sextets.
+// Obvious mis-entries are dropped: rent outside $500–$50,000, rent far from its list price, or
+// rent per sqft outside $0.50–$15.
+const leases = [];
+const leaseDropped = { range: 0, vsList: 0, perSqft: 0 };
+console.log('Fetching leases');
+for (const [mi, month] of months.entries()) {
+  for (const r of await mls.fetchMonth(month, 'leases')) {
+    const zip = String(r.PostalCode ?? '').slice(0, 5);
+    const rent = Number(r.ClosePrice);
+    if (!/^\d{5}$/.test(zip)) continue;
+    if (!(rent >= 500 && rent <= 50_000)) { leaseDropped.range++; continue; }
+    if (r.ListPrice > 0 && (rent < r.ListPrice * 0.5 || rent > r.ListPrice * 1.5)) { leaseDropped.vsList++; continue; }
+    const sqft = r.LivingArea > 0 ? Math.round(r.LivingArea) : 0;
+    if (sqft && (rent / sqft < 0.5 || rent / sqft > 15)) { leaseDropped.perSqft++; continue; }
+    if (!zipIndex.has(zip)) { zipIndex.set(zip, zipIndex.size); zipVotes.push({}); }
+    const zi = zipIndex.get(zip);
+    const vk = `${pretty(r.City)}|${pretty(r.CountyOrParish)}`;
+    zipVotes[zi][vk] = (zipVotes[zi][vk] ?? 0) + 1;
+    const beds = Number.isInteger(r.BedroomsTotal) ? r.BedroomsTotal : -1;
+    leases.push(zi, mi, TYPES.indexOf(propertyType(r)), Math.round(rent), beds, sqft);
+  }
+}
+console.log(`Leases: ${(leases.length / 6).toLocaleString()} kept, dropped ${JSON.stringify(leaseDropped)}`);
+
 // A zip can straddle cities; label it with the city most of its sales report.
 const zips = [...zipIndex.keys()].map((zip, i) => {
   const [city, county] = Object.entries(zipVotes[i]).sort((a, b) => b[1] - a[1])[0][0].split('|');
@@ -125,7 +152,7 @@ try {
   console.warn(`Mortgage rates skipped: ${err.message}`);
 }
 
-const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, spy, hpi, rates };
+const payload = { generatedAt: new Date().toISOString(), through: today, months, types: TYPES, zips, rows, leases, leaseDropped, spy, hpi, rates };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 const out = join(ROOT, 'data', 'history.js');
 writeFileSync(out, `window.HISTORY_DATA = ${JSON.stringify(payload)};\n`);

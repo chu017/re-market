@@ -16,3 +16,6 @@ Local dashboard tracking Bay Area closed residential sales:
   chain-linked as provisional) and *Investment returns* (SPY total return, Dec-to-Dec, plus an editable buyer-owner real
   estate estimate: leverage at the purchase-year mortgage rate, ownership costs, rent saved, IRR on cash). Run `npm run fetch:history`; `data/history.js` is git-ignored, never copied into
   `dist/`, and only loaded from `file://` or `localhost`, so it never appears online
+- **Rentals (local only)**: closed MLS leases since 2015 — median rent, rent per sqft and gross rent yield (rent × 12 ÷
+  sale price, per property type, weighted by sales mix) by year and bedroom count, last-12-month tiles, and a
+  city/zip table of where renting is cheap vs. buying. The buyer-owner estimate uses these measured yields by default

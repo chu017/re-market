@@ -175,6 +175,7 @@
         <div class="owner-grid">
           <form class="assume" id="hist-assume" autocomplete="off">
             <label>Down payment <span><input type="number" name="down" min="0" max="100" step="1">%</span></label>
+            <label class="check"><input type="checkbox" name="measuredRent"> Use measured MLS rent yield <span class="ro-sub" id="hist-measured"></span></label>
             <label>Rent saved (of value / yr) <span><input type="number" name="rentYield" min="0" max="15" step="0.1">%</span></label>
             <label>Property tax (of purchase price) <span><input type="number" name="taxRate" min="0" max="5" step="0.05">%</span></label>
             <label>Tax increase / yr <span><input type="number" name="taxGrowth" min="0" max="10" step="0.5">%</span></label>
@@ -211,6 +212,58 @@
       </details>
     </div>
     <p class="card-sub" id="hist-empty" hidden>No history data yet. Run <code>npm run fetch:history</code> (about 15 minutes the first time), then reload.</p>
+  </section>
+
+  <!-- Local-only rentals: closed MLS leases from data/history.js. -->
+  <section class="card rent-card" id="rent-card" hidden>
+    <div class="card-title">
+      <span class="icon-tile" data-icon="key"></span>
+      <div>
+        <h2>Rentals <span class="local-badge" title="data/history.js stays on this computer and is never part of the online site">Local only</span></h2>
+        <p class="card-sub" id="rent-sub"></p>
+      </div>
+    </div>
+    <div class="vs-controls">
+      <div class="seg" role="group" aria-label="Rent metric">
+        <button type="button" data-rmetric="rent" aria-pressed="true">Median rent</button>
+        <button type="button" data-rmetric="psf" aria-pressed="false">Rent / sqft</button>
+        <button type="button" data-rmetric="yield" aria-pressed="false">Gross yield</button>
+      </div>
+      <div class="seg" role="group" aria-label="Bedrooms">
+        <button type="button" data-rbeds="all" aria-pressed="true">All beds</button>
+        <button type="button" data-rbeds="1" aria-pressed="false">≤1 bd</button>
+        <button type="button" data-rbeds="2" aria-pressed="false">2 bd</button>
+        <button type="button" data-rbeds="3" aria-pressed="false">3 bd</button>
+        <button type="button" data-rbeds="4" aria-pressed="false">4+ bd</button>
+      </div>
+    </div>
+    <div id="rent-body">
+      <ul class="vs-notices" id="rent-notices"></ul>
+      <div class="vs-tiles" id="rent-tiles"></div>
+      <div class="readout" id="rent-readout" aria-live="polite"></div>
+      <div class="chart-box"><canvas id="rent-chart" role="img" aria-label="Rent trend by year"></canvas></div>
+      <div class="table-wrap">
+        <table class="data-table" id="rent-year-table">
+          <thead><tr><th>Year</th><th>Period</th><th>Leases</th><th>Median rent</th><th>Rent YoY</th><th>Rent / sqft</th><th>Median sale price</th><th>Gross yield</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card-title spread rent-area-head">
+        <div><h2 class="h3">Where renting is cheap vs. buying</h2><p class="card-sub" id="rent-area-sub"></p></div>
+        <div class="seg" role="group" aria-label="Group by">
+          <button type="button" data-rgroup="city" aria-pressed="true">City</button>
+          <button type="button" data-rgroup="zip" aria-pressed="false">Zip code</button>
+        </div>
+      </div>
+      <div class="table-wrap scroll">
+        <table class="data-table" id="rent-area-table">
+          <thead><tr id="rent-area-head"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="card-sub" id="rent-cutoff"></p>
+    </div>
+    <p class="card-sub" id="rent-empty" hidden>No lease data yet. Run <code>npm run fetch:history</code>, then reload.</p>
   </section>
 
   <footer id="notes"></footer>

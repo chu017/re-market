@@ -344,3 +344,14 @@ body.tv .rate-chg { font-size: 0.8em; }
 .owner-table th, .owner-table td { padding: 7px 10px; font-size: 13px; }
 .owner-table th { text-align: left; background: none; font-weight: 500; color: var(--text-2); }
 .owner-table td { text-align: right; }
+
+/* rentals */
+.rent-card { margin-top: 16px; }
+.rent-area-head { margin-top: 20px; }
+h2.h3 { font-size: 16px; }
+#rent-year-table, #rent-area-table { margin-top: 12px; }
+#rent-year-table th:nth-child(-n+2), #rent-year-table td:nth-child(-n+2),
+#rent-area-table th:nth-child(-n+2), #rent-area-table td:nth-child(-n+2) { text-align: left; }
+.assume label.check { justify-content: flex-start; grid-column: 1 / -1; color: var(--text); }
+.assume input[type="checkbox"] { width: auto; }
+.assume input:disabled { opacity: 0.5; }
