@@ -68,18 +68,33 @@ function warnIfTokenExpiring(jwt) {
  * - The running month is reused only on the day it was fetched.
  * - With strictFields, a cached month missing a field the kind now selects is re-downloaded.
  */
-export function createMlsClient({ base, token, counties, today, refresh = false, cacheDays = 7, oldCacheDays = 90, strictFields = true }) {
+export function createMlsClient({ base, token, counties, today, refresh = false, cacheDays = 7, oldCacheDays = 90, strictFields = true, progress = true }) {
   const cacheDir = join(ROOT, 'data', 'raw');
   mkdirSync(cacheDir, { recursive: true });
   let calls = 0;
 
+  // Some queries (cancellations by off-market date) can stall on the server for a minute and then fail
+  // with a 500. Give up on a call after REQUEST_TIMEOUT_MS and retry it, rather than waiting it out.
+  const REQUEST_TIMEOUT_MS = 45_000;
+  const RETRIES = 4;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
   async function get(params, attempt = 0) {
     calls++;
-    const res = await fetch(`${base.replace(/\/$/, '')}/Property?${new URLSearchParams(params)}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    });
-    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
-      await new Promise((r) => setTimeout(r, 2 ** attempt * 2000));
+    let res;
+    try {
+      res = await fetch(`${base.replace(/\/$/, '')}/Property?${new URLSearchParams(params)}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      // Timeout or network error.
+      if (attempt >= RETRIES) throw new Error(`MLS API request failed after ${RETRIES + 1} tries: ${err.message}`);
+      await wait(2 ** attempt * 1000 + Math.random() * 1000);
+      return get(params, attempt + 1);
+    }
+    if ((res.status === 429 || res.status >= 500) && attempt < RETRIES) {
+      await wait(2 ** attempt * 2000 + Math.random() * 1000);
       return get(params, attempt + 1);
     }
     const body = await res.json().catch(() => ({}));
@@ -115,9 +130,9 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
       if (!page.value?.length) break;
       rows.push(...page.value);
       last = page.value.at(-1).ListingKeyNumeric;
-      if (process.stdout.isTTY) process.stdout.write(`\r  ${label}: ${rows.length}/${expected}`);
+      if (progress && process.stdout.isTTY) process.stdout.write(`\r  ${label}: ${rows.length}/${expected}`);
     }
-    if (process.stdout.isTTY) process.stdout.write('\r');
+    if (progress && process.stdout.isTTY) process.stdout.write('\r');
     console.log(`  ${label}: ${rows.length} ${kind}${rows.length !== expected ? ` (WARNING: server reported ${expected})` : ''}`);
     return rows;
   }

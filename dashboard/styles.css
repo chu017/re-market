@@ -289,7 +289,7 @@ body.tv .ro-key i { width: 12px; height: 12px; }
 body.tv .ro-hint { display: none; }
 body.tv #monthly-row .chart-box { flex: 1; height: auto; min-height: 0; }
 body.tv .rate-head { font-size: clamp(13px, 1vw, 19px); }
-body.tv .rate-box { height: 19vh; }
+body.tv .rate-box { height: 12vh; }
 body.tv .legend { font-size: clamp(14px, 1.1vw, 20px); }
 body.tv .legend svg { width: 36px; height: 14px; }
 @media (max-width: 900px) { body.tv #monthly-row { grid-template-columns: 1fr; } }
@@ -404,7 +404,13 @@ h2.h3 { font-size: 16px; }
 }
 
 /* chart readout: two stat blocks instead of one long line */
-.readout.stats { flex-wrap: nowrap; gap: 10px 0; padding: 10px 14px; margin-bottom: 10px; }
+.readout.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 0; padding: 10px 4px; margin-bottom: 10px; }
+.readout.stats .ro-stat { padding: 0 12px; min-width: 0; }
+.readout.stats .ro-stat + .ro-stat { border-left: 1px solid var(--border); }
+.readout.stats .ro-stat > div { min-width: 0; }
+.ro-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.readout.stats .ro-label { overflow: hidden; text-overflow: ellipsis; }
+.inv-strip .rate-box { height: 100px; }
 .ro-group { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .ro-group + .ro-group { margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); }
 .ro-stat { display: flex; align-items: center; gap: 10px; }

@@ -279,12 +279,16 @@
   };
   const yAxisWidth = () => (isTV() ? 86 : 58);
 
-  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, labelFmt, dense = false, xTick, xOffset = false, colors, hollow }) {
+  function lineChart(id, labels, cur, prior, { curLabel, priorLabel, axisFmt, group, strip = false, countScale = false, labelFmt, dense = false, xTick, xOffset = false, colors, hollow }) {
     group.ids.add(id);
     const vals = [...cur, ...prior].filter((v) => v != null);
-    const stripRange = strip && vals.length
-      ? { min: Math.floor(Math.min(...vals) - 0.1), max: Math.ceil(Math.max(...vals) + 0.3) }
-      : {};
+    // Rate strips snap to whole percents; count strips (inventory) get a padded automatic range.
+    const rateStrip = strip && !countScale;
+    const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || hi || 1;
+    const stripRange = !strip || !vals.length ? {}
+      : rateStrip ? { min: Math.floor(lo - 0.1), max: Math.ceil(hi + 0.3) }
+        // Counts: fit the data (headroom on top for the point labels) instead of starting at zero.
+        : { min: Math.max(0, lo - span * 0.15), max: hi + span * 0.45 };
     const [blue, gray] = colors ?? [css('--series-1'), css('--series-prior')];
     const surface = css('--surface');
     const line = (label, data, color, fill) => ({
@@ -317,7 +321,7 @@
           x: { offset: xOffset, grid: { display: false }, border: { color: css('--axis') }, ticks: { display: !strip, maxRotation: 0, autoSkipPadding: 10, ...(xTick && { autoSkip: false, callback: xTick }) } },
           y: {
             grace: strip ? 0 : '8%', border: { display: false }, ...stripRange,
-            ticks: { callback: axisFmt, maxTicksLimit: strip ? 5 : 7, ...(strip && { stepSize: 1 }) },
+            ticks: { callback: axisFmt, maxTicksLimit: strip ? (countScale ? 3 : 5) : 7, ...(rateStrip && { stepSize: 1 }) },
             afterFit: (scale) => { scale.width = yAxisWidth(); },
           },
         },
@@ -486,18 +490,30 @@
     const avgPrior = priorM.map((r) => (r.length ? mean(r.map((x) => x.price)) : null));
     const ym = (year, i) => `${year}-${String(i + 1).padStart(2, '0')}`;
     const blue = css('--series-1'), gray = css('--series-prior');
-    // Two stat blocks: the hovered month's value with its YoY change, and that month's 30-yr rate.
-    const describe = (curArr, priorArr, fmt) => (i, isDefault) => {
+    // Inventory: homes for sale at the end of each month (today, for the running month), rebuilt from listing spans.
+    const hasInv = HAS_LISTINGS && HAS_MARKET;
+    const lists = hasInv ? [rows, filtered({}, cancels), filtered({}, active)] : [];
+    const monthEnd = (year, i) => iso(Date.UTC(year, i + 1, 0));
+    const invCur = MON.map((_, i) => (hasInv && i <= curMonthIdx ? forSaleOn(lists, i === curMonthIdx ? END : monthEnd(YEAR, i)) : null));
+    const invPrior = MON.map((_, i) => (hasInv && monthEnd(py, i) >= win.fetch.start ? forSaleOn(lists, monthEnd(py, i)) : null));
+    const compact = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}K` : String(Math.round(v)));
+    // Up to three stat columns for the hovered month: the chart's value, active listings and the 30-yr rate,
+    // each with its change (YoY for the value and inventory, MoM for the rate). Hover a column for last year's figure.
+    const describe = (curArr, priorArr, fmt, what) => (i) => {
       const r = monthRate(ym(YEAR, i)), mom = rateMoM(ym(YEAR, i));
-      const curText = curArr[i] != null ? fmt(curArr[i]) : i === curMonthIdx ? 'MTD' : '–';
-      const stat = (ic, label, value, extra = '') => `<div class="ro-stat"><span class="ro-icon">${icon(ic)}</span><div><span class="ro-label">${label}</span><b class="ro-value">${value}</b></div>${extra}</div>`;
-      return `<div class="ro-group">${stat('calendar', `${MON[i]} ${YEAR}`, curText)}
-          <div class="ro-stat ro-yoy"><div><span class="ro-label">YoY <span class="ro-prior" style="--dot:${gray}">vs. ${priorArr[i] != null ? fmt(priorArr[i]) : '–'}</span></span>${pill(yoy(curArr[i], priorArr[i]))}</div></div></div>`
-        + (r != null ? `<div class="ro-group ro-rate">${stat('house', '30-Yr Mortgage Rate', rate(r), mom != null ? changePill(mom / 100, (v) => signed(v * 100, 2, ' pt'), 0.00005) : '')}</div>` : '');
+      const stat = (ic, label, value, change, title) =>
+        `<div class="ro-stat" title="${title}"><span class="ro-icon">${icon(ic)}</span><div><span class="ro-label">${label}</span><span class="ro-line"><b class="ro-value">${value}</b>${change}</span></div></div>`;
+      const cols = [stat('calendar', `${MON[i]} ${YEAR} ${what}`, curArr[i] != null ? fmt(curArr[i]) : i === curMonthIdx ? 'MTD' : '–',
+        curArr[i] != null ? pill(yoy(curArr[i], priorArr[i])) : '', `${MON[i]} ${py}: ${priorArr[i] != null ? fmt(priorArr[i]) : '–'}`)];
+      if (hasInv) cols.push(stat('house', 'Active listings', num(invCur[i]),
+        invCur[i] != null ? pill(yoy(invCur[i], invPrior[i])) : '', `${i === curMonthIdx ? 'Today' : 'End of month'}; ${MON[i]} ${py}: ${num(invPrior[i])}`));
+      if (r != null) cols.push(stat('percent', '30-yr rate', rate(r), mom != null ? changePill(mom / 100, (v) => signed(v * 100, 2, ' pt'), 0.00005) : '',
+        `${MON[i]} ${py}: ${rate(monthRate(ym(py, i)))}; change shown is vs. the month before`));
+      return cols.join('');
     };
     const latest = Math.max(0, curMonthIdx - 1);
-    const volGroup = readoutGroup($('#vol-readout'), describe(volCur, volPrior, num), latest);
-    const avgGroup = readoutGroup($('#avg-readout'), describe(avgCur, avgPrior, money), latest);
+    const volGroup = readoutGroup($('#vol-readout'), describe(volCur, volPrior, num, 'sales'), latest);
+    const avgGroup = readoutGroup($('#avg-readout'), describe(avgCur, avgPrior, money, 'avg'), latest);
 
     lineChart('vol-chart', MON, volCur, volPrior, { curLabel: String(YEAR), priorLabel: String(py), axisFmt: (v) => num(v), group: volGroup });
     lineChart('avg-chart', MON, avgCur, avgPrior, { curLabel: String(YEAR), priorLabel: String(py), axisFmt: tick, group: avgGroup });
@@ -510,6 +526,14 @@
       for (const [id, group] of [['vol-rate', volGroup], ['avg-rate', avgGroup]]) {
         lineChart(id, MON, rCur, rPrior, {
           curLabel: String(YEAR), priorLabel: String(py), axisFmt: (v) => `${+v}%`, group, strip: true, labelFmt: (v) => v.toFixed(2),
+        });
+      }
+    }
+    document.querySelectorAll('[data-inv-strip]').forEach((el) => (el.hidden = !hasInv));
+    if (hasInv) {
+      for (const [id, group] of [['vol-inv', volGroup], ['avg-inv', avgGroup]]) {
+        lineChart(id, MON, invCur, invPrior, {
+          curLabel: String(YEAR), priorLabel: String(py), axisFmt: compact, group, strip: true, countScale: true, labelFmt: compact,
         });
       }
     }
