@@ -27,6 +27,10 @@ function pickType() {
 const zips = loadZips();
 const win = windows();
 const sales = [];
+const cancels = [];
+const active = [];
+const mockDom = () => Math.max(1, Math.round(Math.exp(2.6 + gauss() * 0.8)));
+const before = (date, days) => new Date(Date.parse(date) - days * DAY_MS).toISOString().slice(0, 10);
 
 for (const [zip, { county }] of Object.entries(zips)) {
   const zipMedian = COUNTY_MEDIAN[county] * Math.exp(gauss() * 0.35);
@@ -48,8 +52,31 @@ for (const [zip, { county }] of Object.entries(zips)) {
       const [type, , typeMult] = pickType();
       const price = Math.round((zipMedian * typeMult * priceMult * Math.exp(gauss() * 0.28)) / 1000) * 1000;
       const sqft = Math.round((price / (900 + rand() * 600)) / 10) * 10;
-      sales.push([zip, price, date, type, sqft]);
+      const dom = mockDom();
+      // About half sell over list; a quarter after a price cut.
+      const list = Math.round(price / (1 + gauss() * 0.06 + 0.01) / 1000) * 1000;
+      const orig = rand() < 0.25 ? Math.round(list * 1.06 / 1000) * 1000 : list;
+      const contract = before(date, 25);
+      sales.push([zip, price, date, type, sqft, dom, list, orig, before(contract, dom), contract]);
+      // Roughly one listing pulled for every four sold.
+      if (rand() < 0.25) {
+        const cdom = mockDom() + 20;
+        cancels.push([zip, Math.round(price * 1.05 / 1000) * 1000, date, type, cdom, rand() < 0.7 ? 'C' : 'X', before(date, cdom), null]);
+      }
     }
+  }
+}
+
+// Today's inventory: about a month and a half of sales per zip.
+for (const [zip, { county }] of Object.entries(zips)) {
+  const n = Math.round(5 + rand() * 30);
+  for (let i = 0; i < n; i++) {
+    const [type, , typeMult] = pickType();
+    const days = mockDom();
+    const status = rand() < 0.7 ? 'A' : rand() < 0.3 ? 'U' : 'P';
+    const list = Math.round((COUNTY_MEDIAN[county] * typeMult * Math.exp(gauss() * 0.3)) / 1000) * 1000;
+    active.push([zip, list, before(win.fetch.end, days), type, days, status,
+      rand() < 0.35 ? Math.round(list * 1.07 / 1000) * 1000 : list, status === 'A' ? null : before(win.fetch.end, Math.floor(days / 3))]);
   }
 }
 
@@ -57,6 +84,8 @@ const out = writeDataset({
   source: 'mock',
   zips,
   sales,
+  cancels,
+  active,
   win,
   notes: ['SYNTHETIC DEMO DATA - run `npm run fetch` with a RentCast API key for real sales.'],
 });

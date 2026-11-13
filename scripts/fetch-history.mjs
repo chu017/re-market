@@ -31,7 +31,8 @@ if (!/^\d{4}-\d{2}$/.test(args.from)) {
 const { base, token } = credentials();
 const counties = parseCounties(args.counties);
 const today = windows().fetch.end;
-const mls = createMlsClient({ base, token, counties, today, refresh: args.refresh });
+// History doesn't use days on market, so older caches without it are still good.
+const mls = createMlsClient({ base, token, counties, today, refresh: args.refresh, strictFields: false });
 
 const months = monthsBetween(`${args.from}-01`, today);
 const TYPES = ['Single Family', 'Condo', 'Townhouse', 'Multi-Family', 'Other'];

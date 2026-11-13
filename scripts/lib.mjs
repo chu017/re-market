@@ -72,9 +72,16 @@ export function loadEnv() {
 
 /**
  * Writes data/sales.js as a plain script so dashboard/index.html works from file://.
- * Each sale is a compact row: [zip, price, 'YYYY-MM-DD', propertyType, sqft|null].
+ * Compact rows:
+ *   sales    [zip, closePrice, closeDate, propertyType, sqft|null, daysOnMarket|null,
+ *             listPrice|null, originalListPrice|null, onMarketDate|null, contractDate|null]
+ *   cancels  [zip, listPrice, offMarketDate, propertyType, daysOnMarket|null, 'C'anceled|'W'ithdrawn|'X'pired,
+ *             onMarketDate|null, originalListPrice|null]
+ *   active   [zip, listPrice, onMarketDate|null, propertyType, daysOnMarket|null, 'A'ctive|'U'nder contract|'P'ending,
+ *             originalListPrice|null, contractDate|null]
+ * Dates are 'YYYY-MM-DD'. A null in a trailing column means the MLS left it blank.
  */
-export function writeDataset({ source, zips, sales, win, notes = [] }) {
+export function writeDataset({ source, zips, sales, cancels = [], active = [], win, notes = [] }) {
   const payload = {
     generatedAt: new Date().toISOString(),
     source,
@@ -82,6 +89,8 @@ export function writeDataset({ source, zips, sales, win, notes = [] }) {
     zips,
     notes,
     sales,
+    cancels,
+    active,
   };
   mkdirSync(join(ROOT, 'data'), { recursive: true });
   const out = join(ROOT, 'data', 'sales.js');

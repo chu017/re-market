@@ -15,7 +15,7 @@
       <span class="logo" data-icon="house"></span>
       <div>
         <h1>Bay Area Market Monitor</h1>
-        <p class="sub">Bay Area residential sales, with a month-by-month comparison of this year versus the same month last year.</p>
+        <p class="sub">Bay Area residential sales with month-over-month and year-over-year comparison.</p>
       </div>
     </div>
     <div class="head-actions">
@@ -28,69 +28,84 @@
   <p class="banner" id="banner" hidden></p>
 
   <section class="filters" aria-label="Filters">
-    <label>County <select id="f-county"></select></label>
-    <label>City <select id="f-city"></select></label>
-    <label>Zip code <select id="f-zip"></select></label>
-    <label>Property type
-      <select id="f-type">
-        <option value="">All Residential</option>
-        <option value="Single Family">Single Family</option>
-        <option value="Condo|Townhouse">Condo &amp; Townhouse</option>
-        <option value="Multi-Family">Multi-Family</option>
-      </select>
-    </label>
-    <span class="divider" aria-hidden="true"></span>
-    <button id="f-reset" type="button" class="btn-outline"><span data-icon="reset"></span>Reset</button>
+    <div class="filter-row">
+      <label>County <select id="f-county"></select></label>
+      <label>City <select id="f-city"></select></label>
+      <label>Zip code <select id="f-zip"></select></label>
+      <label>Property type
+        <select id="f-type">
+          <option value="">All Residential</option>
+          <option value="Single Family">Single Family</option>
+          <option value="Condo|Townhouse">Condo &amp; Townhouse</option>
+          <option value="Multi-Family">Multi-Family</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-row period-bar">
+      <div class="seg" role="group" aria-label="Comparison period">
+        <button type="button" data-period="90d" aria-pressed="true">Last 90 days</button>
+        <button type="button" data-period="ytd" aria-pressed="false">Year to date</button>
+      </div>
+      <p class="period-label" id="period-label"></p>
+      <button id="f-reset" type="button" class="btn-outline"><span data-icon="reset"></span>Reset</button>
+    </div>
   </section>
 
-  <div class="period-bar">
-    <div class="seg" role="group" aria-label="Comparison period">
-      <button type="button" data-period="90d" aria-pressed="true">Last 90 days</button>
-      <button type="button" data-period="ytd" aria-pressed="false">Year to date</button>
+  <section class="card kpi-card" aria-label="Key metrics">
+    <div class="kpi-group">
+      <div class="kpi-head"><span class="icon-tile" data-icon="house"></span><div><h2>Core Market</h2><p>Sales activity and pricing performance.</p></div></div>
+      <div class="tiles" id="tiles"></div>
     </div>
-    <p class="period-label" id="period-label"></p>
-  </div>
-  <section class="tiles" id="tiles" aria-label="Key metrics"></section>
+    <div class="kpi-group" id="supply-group" hidden>
+      <div class="kpi-head"><span class="icon-tile" data-icon="layers"></span><div><h2>Supply &amp; Demand</h2><p>Listing supply, market absorption, and demand.</p></div></div>
+      <div class="tiles" id="supply-tiles"></div>
+    </div>
+    <div class="kpi-group" id="behavior-group" hidden>
+      <div class="kpi-head"><span class="icon-tile" data-icon="trend"></span><div><h2>Market Behavior</h2><p>Listing changes, time to sell, and pricing strategy.</p></div></div>
+      <div class="tiles" id="behavior-tiles"></div>
+    </div>
+  </section>
 
   <section class="row two" id="monthly-row">
     <article class="card">
       <div class="card-title">
         <span class="icon-tile" data-icon="bars"></span>
-        <div><h2 id="vol-title">Monthly Sales Volume</h2><p class="card-sub" id="vol-sub">Number of closed residential sales by month.</p></div>
+        <div><h2 id="vol-title">Monthly Sales Volume</h2><p class="card-sub" id="vol-sub">Closed residential sales by month.</p></div>
       </div>
-      <div class="readout" id="vol-readout" aria-live="polite"></div>
+      <div class="readout stats" id="vol-readout" aria-live="polite"></div>
       <div class="chart-box"><canvas id="vol-chart" role="img" aria-label="Monthly closed sales, this year vs last year"></canvas></div>
+      <div class="legend" id="vol-legend"></div>
       <div class="rate-strip" data-rate-strip>
-        <p class="rate-head">30-yr mortgage rate <span>· monthly average</span></p>
+        <p class="rate-head">30-Yr Mortgage Rate <span>(Monthly Avg)</span></p>
         <div class="rate-box"><canvas id="vol-rate" role="img" aria-label="30-year mortgage rate by month"></canvas></div>
       </div>
-      <div class="legend" id="vol-legend"></div>
     </article>
     <article class="card">
       <div class="card-title">
         <span class="icon-tile" data-icon="database"></span>
         <div><h2 id="avg-title">Monthly Average Sale Price</h2><p class="card-sub" id="avg-sub">Average closed sale price by month.</p></div>
       </div>
-      <div class="readout" id="avg-readout" aria-live="polite"></div>
+      <div class="readout stats" id="avg-readout" aria-live="polite"></div>
       <div class="chart-box"><canvas id="avg-chart" role="img" aria-label="Monthly average sale price, this year vs last year"></canvas></div>
+      <div class="legend" id="avg-legend"></div>
       <div class="rate-strip" data-rate-strip>
-        <p class="rate-head">30-yr mortgage rate <span>· monthly average</span></p>
+        <p class="rate-head">30-Yr Mortgage Rate <span>(Monthly Avg)</span></p>
         <div class="rate-box"><canvas id="avg-rate" role="img" aria-label="30-year mortgage rate by month"></canvas></div>
       </div>
-      <div class="legend" id="avg-legend"></div>
     </article>
   </section>
 
-  <section class="row summary-row">
+  <section class="row">
     <article class="card">
-      <div class="card-title"><span class="icon-plain" data-icon="sparkle"></span><h2>Market Summary</h2></div>
+      <div class="card-title inline-sub"><span class="icon-plain" data-icon="sparkle"></span><h2>Market Insights</h2><p class="card-sub" id="insights-sub"></p></div>
       <ul class="insights" id="insights"></ul>
+      <p class="card-sub insights-note" id="insights-note"></p>
     </article>
     <article class="card">
-      <div class="card-title"><span class="icon-plain" data-icon="table"></span><h2>Monthly Comparison: Sales Volume and Average Sale Price</h2></div>
+      <div class="card-title inline-sub"><span class="icon-plain" data-icon="table"></span><h2>Monthly Comparison</h2><p class="card-sub">Each month vs. the same month last year (YoY) and the prior month (MoM).</p></div>
       <div class="table-wrap">
-        <table class="data-table" id="month-table">
-          <thead><tr id="month-head"></tr></thead>
+        <table class="data-table month-table" id="month-table">
+          <thead id="month-head"></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -136,7 +151,7 @@
         <tbody></tbody>
       </table>
     </div>
-    <p class="card-sub">YoY is shown only when both periods have at least 3 sales.</p>
+    <p class="card-sub">YoY is shown only when both periods have at least 3 sales. Avg DOM: average days on market of closed sales. Cancelled: canceled, withdrawn or expired listings in the period. Active: for sale today.</p>
   </section>
 
   <!-- Local-only: shown only when opened from file:// or localhost with data/history.js present. -->

@@ -19,6 +19,17 @@
     exit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
     history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/>',
     key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+    list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+    pending: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>',
+    ban: '<circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/>',
+    hourglass: '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.17a2 2 0 0 0-.59-1.41L12 12l-4.41 4.42A2 2 0 0 0 7 17.83V22"/><path d="M7 2v4.17a2 2 0 0 0 .59 1.41L12 12l4.41-4.42A2 2 0 0 0 17 6.17V2"/>',
+    calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    percent: '<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+    down: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+    bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
     check: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m8 12.5 2.8 2.8L16.5 9.5" stroke="#fff" stroke-width="2.4"/>',
   };
   const icon = (name) =>
@@ -61,7 +72,20 @@
   const longDate = (d) => `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8)}, ${d.slice(0, 4)}`;
   const rangeText = ([a, b]) => `${longDate(a)} – ${longDate(b)}`;
 
-  const sales = DATA.sales.map(([zip, price, date, type, sqft]) => ({ zip, price, date, type, sqft, ...DATA.zips[zip] }));
+  // Every row carries its on-market span: `on` (listed) to `off` (went under contract or came off unsold;
+  // null = still for sale). From these, the homes for sale and under contract on any past day can be rebuilt.
+  const sales = DATA.sales.map(([zip, price, date, type, sqft, dom, list, orig, on, contract]) =>
+    ({ zip, price, date, type, sqft, dom, list, orig, on, contract, off: contract && contract < date ? contract : date, ...DATA.zips[zip] }));
+  // Listings that came off the market unsold (dated by the day they came off), and today's inventory.
+  const cancels = (DATA.cancels ?? []).map(([zip, price, date, type, dom, status, on, orig]) =>
+    ({ zip, price, date, type, dom, status, on, orig, off: date, ...DATA.zips[zip] }));
+  const active = (DATA.active ?? []).map(([zip, price, on, type, dom, status, orig, contract]) =>
+    ({ zip, price, list: price, on, type, dom, status, orig, contract, off: status === 'A' ? null : contract ?? END, ...DATA.zips[zip] }));
+  const HAS_LISTINGS = !!(DATA.active?.length || DATA.cancels?.length);
+  // List prices and on-market dates arrived in a later data version; older datasets hide what needs them.
+  const HAS_MARKET = sales.some((s) => s.list != null);
+  const forSale = (r) => r.status === 'A';
+  const cut = (r) => r.orig != null && r.list != null && r.list < r.orig;
 
   const state = { county: '', city: '', zip: '', type: '', dist: 'bands', groupBy: 'zip', sortKey: 'n', sortDir: -1, search: '' };
 
@@ -81,6 +105,16 @@
     const dir = Math.abs(v) < 0.0005 ? 'flat' : v > 0 ? 'up' : 'down';
     return `<span class="pill ${dir}">${pctText(v)}</span>`;
   };
+  // A change in a share (0.54 -> 0.49) reads better in percentage points than as a relative change.
+  const signed = (v, digits, unit) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(digits)}${unit}`;
+  const ptText = (v) => signed(v * 100, 1, ' pt');
+  /** A pill for an absolute change, labelled by `text(v)`. */
+  const changePill = (v, text, flatBelow = 0.0005) => {
+    if (v == null || !isFinite(v)) return '<span class="pill flat">–</span>';
+    return `<span class="pill ${Math.abs(v) < flatBelow ? 'flat' : v > 0 ? 'up' : 'down'}">${text(v)}</span>`;
+  };
+  const ptPill = (v) => changePill(v, ptText);
+  const share = (v) => (v == null ? '–' : `${(v * 100).toFixed(0)}%`);
 
   // ---------- stats ----------
   const median = (arr) => {
@@ -94,8 +128,17 @@
   function summarize(rows) {
     const prices = rows.map((r) => r.price);
     const withSqft = rows.filter((r) => r.sqft > 200);
+    const doms = rows.map((r) => r.dom).filter((d) => d != null);
+    // Sale-to-list uses the final list price; ratios outside 0.5–2 are data-entry errors.
+    const listed = rows.filter((r) => r.list > 0 && r.price / r.list > 0.5 && r.price / r.list < 2);
+    const withOrig = rows.filter((r) => r.orig != null && r.list != null);
     return {
       n: rows.length,
+      dom: mean(doms),
+      domMedian: median(doms),
+      overList: listed.length ? listed.filter((r) => r.price > r.list).length / listed.length : null,
+      toList: mean(listed.map((r) => r.price / r.list)),
+      soldAfterCut: withOrig.length ? withOrig.filter(cut).length / withOrig.length : null,
       median: median(prices),
       avg: mean(prices),
       ppsf: withSqft.length ? withSqft.reduce((a, r) => a + r.price, 0) / withSqft.reduce((a, r) => a + r.sqft, 0) : null,
@@ -113,9 +156,9 @@
   const rate = (v) => (v == null ? '–' : `${v.toFixed(2)}%`);
   const pts = (v) => (v == null ? '–' : `${v > 0 ? '▲ +' : v < 0 ? '▼ −' : ''}${Math.abs(v).toFixed(2)} pt`);
 
-  /** Sales matching the type filter and (unless ignoreGeo) the county/city/zip filters. */
-  function filtered({ ignoreGeo = false } = {}) {
-    return sales.filter(
+  /** Sales (or other listing rows) matching the type filter and (unless ignoreGeo) the county/city/zip filters. */
+  function filtered({ ignoreGeo = false } = {}, list = sales) {
+    return list.filter(
       (s) =>
         (!state.type || state.type.split('|').includes(s.type)) &&
         (ignoreGeo || ((!state.county || s.county === state.county) && (!state.city || s.city === state.city) && (!state.zip || s.zip === state.zip))),
@@ -213,7 +256,7 @@
     syncing = false;
   }
   const roKey = (color, label, value) => `<span class="ro-key"><i style="background:${color}"></i>${label} <b>${value}</b></span>`;
-  const roHint = (isDefault) => (isDefault ? '<span class="ro-hint">hover the chart to explore</span>' : '');
+  const roHint = (isDefault) => (isDefault ? '<span class="ro-hint">Hover the chart to explore</span>' : '');
 
   /** Two-line chart: this year (blue, area wash) vs last year (gray). */
   // Value labels above this-year points (used on the mortgage-rate strip).
@@ -337,14 +380,87 @@
     const tiles = [
       ['house', 'Closed Sales', num(c.n), yoy(c.n, p.n), num(p.n)],
       ['tag', 'Average Sale Price', money(c.avg), yoy(c.avg, p.avg), money(p.avg)],
-      ['bars', 'Median Sale Price', money(c.median), yoy(c.median, p.median), money(p.median)],
-      ['layers', 'Price per Sqft', sqft(c.ppsf), yoy(c.ppsf, p.ppsf), sqft(p.ppsf)],
+      ['database', 'Median Sale Price', money(c.median), yoy(c.median, p.median), money(p.median)],
+      ['bars', 'Price per Sqft', sqft(c.ppsf), yoy(c.ppsf, p.ppsf), sqft(p.ppsf)],
     ];
     $('#tiles').innerHTML = tiles
       .map(([ic, label, value, d, ly]) => `<div class="tile"><span class="icon-tile">${icon(ic)}</span><div>
         <div class="label">${label}</div><div class="value">${value}</div>
         <div class="delta">${pill(d)}<span>YoY (vs. ${ly})</span></div></div></div>`)
       .join('');
+  }
+
+  // ---------- listing activity tiles: inventory today, cancellations and days on market ----------
+  const days = (v) => (v == null ? '–' : `${Math.round(v)} days`);
+  /** Homes for sale (listed, not yet under contract or pulled) at the end of `day`, from listing spans. */
+  const forSaleOn = (lists, day) => lists.reduce((n, list) => n + list.filter((r) => r.on && r.on <= day && (!r.off || r.off > day)).length, 0);
+  /** Homes under contract but not yet closed at the end of `day`. */
+  const pendingOn = (rows, act, day) =>
+    rows.filter((r) => r.contract && r.contract <= day && r.date > day).length + act.filter((r) => !forSale(r) && (r.contract ?? END) <= day).length;
+  /** Inventory and new-listing numbers for the current filters: today vs. the same day last year. */
+  function inventory(rows, can, act) {
+    const LY = win.prior.end;
+    const lists = [rows, can, act];
+    const forNow = act.filter(forSale).length;
+    const forLY = forSaleOn(lists, LY);
+    // Months of supply: homes for sale / average monthly closed sales over the 90 days before.
+    const perMonth = (a, b) => rows.filter(between(a, b)).length / 3;
+    const sup = (n, m) => (m ? n / m : null);
+    const listedIn = ([a, b]) => lists.reduce((n, list) => n + list.filter((r) => r.on && r.on >= a && r.on <= b).length, 0);
+    const actCut = act.filter(forSale).filter((r) => r.orig != null);
+    return {
+      forNow, forLY,
+      pendNow: act.length - forNow, pendLY: pendingOn(rows, act, LY),
+      supply: sup(forNow, perMonth(win.current.start, END)), supplyLY: sup(forLY, perMonth(win.prior.start, LY)),
+      newCur: listedIn(period.cur), newPrior: listedIn(period.prior),
+      cuts: actCut.filter(cut).length, cutRate: actCut.length ? actCut.filter(cut).length / actCut.length : null,
+    };
+  }
+  function renderListingTiles(rows, can, act) {
+    const c = summarize(rows.filter(isCur)), p = summarize(rows.filter(isPrior));
+    const cc = can.filter(isCur).length, cp = can.filter(isPrior).length;
+    const inv = inventory(rows, can, act);
+    // Of everything that left the market this period, the share pulled rather than sold.
+    const pulled = cc + c.n ? cc / (cc + c.n) : null;
+    const tile = (ic, label, value, delta, title = '') => `<div class="tile"${title ? ` title="${title}"` : ''}><span class="icon-tile">${icon(ic)}</span><div>
+        <div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta}</div></div></div>`;
+    const yoyLine = (d, ly) => `${pill(d)}<span>YoY (vs. ${ly})</span>`;
+    const ptLine = (cur, prior, fmt) => `${ptPill(cur != null && prior != null ? cur - prior : null)}<span>YoY (vs. ${fmt(prior)})</span>`;
+    const supplyTiles = [], tiles = [];
+    if (HAS_LISTINGS) {
+      const supply = (v) => (v == null ? '–' : `${v.toFixed(1)} mo.`);
+      supplyTiles.push(
+        tile('house', 'Active Listings', num(inv.forNow), HAS_MARKET ? yoyLine(yoy(inv.forNow, inv.forLY), num(inv.forLY)) : '<span>For sale today</span>',
+          `For sale today, not under contract (vs. ${longDate(win.prior.end)}). Months of supply: ${supply(inv.supply)} (last year ${supply(inv.supplyLY)}) = active listings / average monthly closed sales over the prior 90 days.`),
+        tile('calendar', 'Months of Supply', supply(inv.supply),
+          HAS_MARKET && inv.supply != null && inv.supplyLY != null
+            ? `${changePill(inv.supply - inv.supplyLY, (v) => signed(v, 1, ' mo.'), 0.05)}<span>YoY (vs. ${supply(inv.supplyLY)})</span>`
+            : '<span>at the current sales pace</span>',
+          'Active listings / average monthly closed sales over the prior 90 days. Under ~3 months favors sellers; over ~6 favors buyers.'),
+      );
+      if (HAS_MARKET) supplyTiles.push(tile('plus', 'New Listings', num(inv.newCur), yoyLine(yoy(inv.newCur, inv.newPrior), num(inv.newPrior)),
+        `Homes that came on the market ${period.phrase}, whatever happened to them since.`));
+      supplyTiles.push(tile('clipboard', 'Pending Sales', num(inv.pendNow), HAS_MARKET ? yoyLine(yoy(inv.pendNow, inv.pendLY), num(inv.pendLY)) : '<span>Under contract today</span>',
+        'Under contract today and not yet closed, vs. the same day last year.'));
+      tiles.push(
+        tile('x', 'Cancelled Listings', num(cc), yoyLine(yoy(cc, cp), num(cp)),
+          `Canceled, withdrawn or expired ${period.phrase}${pulled != null ? ` - ${(pulled * 100).toFixed(1)}% of listings that left the market` : ''}.`),
+      );
+    }
+    tiles.push(tile('clock', 'Avg Days on Market', days(c.dom), yoyLine(yoy(c.dom, p.dom), days(p.dom)),
+      `Closed sales ${period.phrase}. Median ${c.domMedian == null ? '–' : Math.round(c.domMedian)} days.`));
+    if (HAS_MARKET) {
+      tiles.push(
+        tile('percent', 'Sold Over List', share(c.overList), ptLine(c.overList, p.overList, share),
+          `Share of closed sales ${period.phrase} that sold above the final list price. Average sale-to-list ratio ${share(c.toList)} (last year ${share(p.toList)}).`),
+        tile('down', 'Price Reductions', share(inv.cutRate), `<span>${num(inv.cuts)} of ${num(inv.forNow)} active listings</span>`,
+          `Share of homes for sale today listed below their original list price. ${share(c.soldAfterCut)} of homes sold ${period.phrase} had a price cut first (last year ${share(p.soldAfterCut)}).`),
+      );
+    }
+    $('#supply-group').hidden = !supplyTiles.length;
+    $('#supply-tiles').innerHTML = supplyTiles.join('');
+    $('#behavior-group').hidden = !rows.some((r) => r.dom != null) && !tiles.length;
+    $('#behavior-tiles').innerHTML = tiles.join('');
   }
 
   // ---------- monthly line charts: Jan–Dec, this year vs last year ----------
@@ -356,10 +472,11 @@
     // This year's line stops at the last complete month; the running month is in the table.
     const done = (i) => i < curMonthIdx;
     const lastDone = curMonthIdx > 0 ? MON[curMonthIdx - 1] : null;
-    const note = lastDone ? ` ${YEAR} runs through ${lastDone}; ${MON[curMonthIdx]} is month-to-date${isTV() ? '' : ' and shown in the table below'}.` : '';
+    // The running month isn't drawn; it's in the monthly table (month-to-date).
+    const note = lastDone && !isTV() ? ` ${MON[curMonthIdx]} MTD in the table.` : '';
 
     $('#vol-title').textContent = `Monthly Sales Volume — ${py} vs ${YEAR}`;
-    $('#vol-sub').textContent = `Number of closed residential sales by month.${note}`;
+    $('#vol-sub').textContent = `Closed residential sales by month.${note}`;
     $('#avg-title').textContent = `Monthly Average Sale Price — ${py} vs ${YEAR}`;
     $('#avg-sub').textContent = `Average closed sale price by month.${note}`;
 
@@ -369,15 +486,14 @@
     const avgPrior = priorM.map((r) => (r.length ? mean(r.map((x) => x.price)) : null));
     const ym = (year, i) => `${year}-${String(i + 1).padStart(2, '0')}`;
     const blue = css('--series-1'), gray = css('--series-prior');
-    // One line: month · this year · last year · YoY · 30-yr rate and its month-over-month change.
+    // Two stat blocks: the hovered month's value with its YoY change, and that month's 30-yr rate.
     const describe = (curArr, priorArr, fmt) => (i, isDefault) => {
-      const r = monthRate(ym(YEAR, i));
-      const curText = curArr[i] != null ? fmt(curArr[i]) : i === curMonthIdx ? 'month-to-date' : '–';
-      return `<span class="ro-title">${MON[i]}</span>`
-        + roKey(blue, YEAR, curText) + roKey(gray, py, priorArr[i] != null ? fmt(priorArr[i]) : '–')
-        + (yoy(curArr[i], priorArr[i]) != null ? pill(yoy(curArr[i], priorArr[i])) : '')
-        + (r != null ? `<span class="ro-rate">30-yr rate <b>${rate(r)}</b> <span class="rate-chg">${pts(rateMoM(ym(YEAR, i)))}</span></span>` : '')
-        + roHint(isDefault);
+      const r = monthRate(ym(YEAR, i)), mom = rateMoM(ym(YEAR, i));
+      const curText = curArr[i] != null ? fmt(curArr[i]) : i === curMonthIdx ? 'MTD' : '–';
+      const stat = (ic, label, value, extra = '') => `<div class="ro-stat"><span class="ro-icon">${icon(ic)}</span><div><span class="ro-label">${label}</span><b class="ro-value">${value}</b></div>${extra}</div>`;
+      return `<div class="ro-group">${stat('calendar', `${MON[i]} ${YEAR}`, curText)}
+          <div class="ro-stat ro-yoy"><div><span class="ro-label">YoY <span class="ro-prior" style="--dot:${gray}">vs. ${priorArr[i] != null ? fmt(priorArr[i]) : '–'}</span></span>${pill(yoy(curArr[i], priorArr[i]))}</div></div></div>`
+        + (r != null ? `<div class="ro-group ro-rate">${stat('house', '30-Yr Mortgage Rate', rate(r), mom != null ? changePill(mom / 100, (v) => signed(v * 100, 2, ' pt'), 0.00005) : '')}</div>` : '');
     };
     const latest = Math.max(0, curMonthIdx - 1);
     const volGroup = readoutGroup($('#vol-readout'), describe(volCur, volPrior, num), latest);
@@ -419,22 +535,31 @@
       const cur = rows.filter((r) => r.date.startsWith(m.key));
       // For the running month, compare against the same days last year only.
       const prior = rows.filter((r) => r.date.startsWith(m.prevKey) && (!m.partial || +r.date.slice(8) <= END_DAY));
-      const c = summarize(cur), p = summarize(prior);
-      return { ...m, c, p };
+      // Month over month: the previous calendar month (same days of it, for the running month).
+      const lastMonth = rows.filter((r) => r.date.startsWith(prevMonth(m.key)) && (!m.partial || +r.date.slice(8) <= END_DAY));
+      const c = summarize(cur), p = summarize(prior), lm = summarize(lastMonth);
+      return { ...m, c, p, lm };
     });
   }
   function renderMonthTable(rows) {
     const data = monthRows(rows);
     const years = new Set(TABLE_MONTHS.map((m) => m.key.slice(0, 4)));
     const [ly, ty] = years.size === 1 ? [YEAR - 1, YEAR] : ['Last Yr', 'This Yr'];
-    $('#month-head').innerHTML = ['Month', `${ly} Sales`, `${ty} Sales`, 'Sales YoY', `${ly} Avg`, `${ty} Avg`, 'Avg YoY',
-      ...(RATES.length ? ['30-yr Rate · MoM'] : [])]
-      .map((h) => `<th>${h}</th>`).join('');
+    // Two header rows: a group label over each block of columns, then the columns themselves.
+    const groups = [['Closed sales', 4], ['Average sale price', 4], ...(RATES.length ? [['30-yr mortgage rate', 2]] : [])];
+    const cols = [ly, ty, 'Sales YoY', 'Sales MoM', ly, ty, 'Price YoY', 'Price MoM', ...(RATES.length ? ['Avg', 'Mortgage MoM'] : [])];
+    const starts = new Set([0, 4, 8]);
+    $('#month-head').innerHTML =
+      `<tr><th rowspan="2" class="month-col">Month</th>${groups.map(([g, n]) => `<th colspan="${n}" class="grp">${g}</th>`).join('')}</tr>`
+      + `<tr class="sub">${cols.map((h, i) => `<th${starts.has(i) ? ' class="grp-start"' : ''}>${h}</th>`).join('')}</tr>`;
+    const vsLast = (m) => `vs. ${monName(prevMonth(m.key))}${m.partial ? ` 1–${END_DAY}` : ''}`;
     $('#month-table tbody').innerHTML = data
-      .map((m) => `<tr><td>${m.partial ? `<span class="chip" title="${monName(m.key)} 1–${END_DAY}">${monName(m.key)} MTD</span>` : monName(m.key)}</td>
-        <td>${num(m.p.n)}</td><td>${num(m.c.n)}</td><td>${pill(yoy(m.c.n, m.p.n))}</td>
-        <td>${money(m.p.avg)}</td><td>${money(m.c.avg)}</td><td>${pill(yoy(m.c.avg, m.p.avg))}</td>
-        ${RATES.length ? `<td title="${monName(m.prevKey)} ${m.prevKey.slice(0, 4)}: ${rate(monthRate(m.prevKey))}">${rate(monthRate(m.key))}<span class="rate-chg">${pts(rateMoM(m.key))}</span></td>` : ''}</tr>`)
+      .map((m) => `<tr${m.partial ? ' class="mtd"' : ''}><td class="month-col">${m.partial ? `<span class="chip" title="${monName(m.key)} 1–${END_DAY}">${monName(m.key)} MTD</span>` : monName(m.key)}</td>
+        <td class="grp-start muted">${num(m.p.n)}</td><td><b>${num(m.c.n)}</b></td><td>${pill(yoy(m.c.n, m.p.n))}</td>
+        <td title="${vsLast(m)}: ${num(m.lm.n)}">${pill(yoy(m.c.n, m.lm.n))}</td>
+        <td class="grp-start muted">${money(m.p.avg)}</td><td><b>${money(m.c.avg)}</b></td><td>${pill(yoy(m.c.avg, m.p.avg))}</td>
+        <td title="${vsLast(m)}: ${money(m.lm.avg)}">${pill(yoy(m.c.avg, m.lm.avg))}</td>
+        ${RATES.length ? `<td class="grp-start" title="${monName(m.prevKey)} ${m.prevKey.slice(0, 4)}: ${rate(monthRate(m.prevKey))}">${rate(monthRate(m.key))}</td><td>${changePill(rateMoM(m.key) == null ? null : rateMoM(m.key) / 100, (v) => signed(v * 100, 2, ' pt'), 0.00005)}</td>` : ''}</tr>`)
       .join('');
     return data;
   }
@@ -442,32 +567,49 @@
   // ---------- market summary ----------
   function renderSummary(rows, months) {
     const c = summarize(rows.filter(isCur)), p = summarize(rows.filter(isPrior));
+    // Each insight: an icon, a topic and one or two short sentences, key numbers bold and changes coloured.
     const items = [];
+    const add = (ic, title, text) => text && items.push([ic, title, text]);
+    const b = (v) => `<b>${v}</b>`;
+    const arrow = (v) => (Math.abs(v) < 0.0005 ? '' : v > 0 ? '▲ ' : '▼ ');
+    const tone = (v, text) => (v == null || !isFinite(v) ? '' : `<span class="chg ${Math.abs(v) < 0.0005 ? 'flat' : v > 0 ? 'up' : 'down'}">${arrow(v)}${text}</span>`);
+    const rel = (cur, prior) => { const v = yoy(cur, prior); return tone(v, pctText(v)); };
+    const pt = (cur, prior) => (cur == null || prior == null ? '' : tone(cur - prior, ptText(cur - prior)));
+    const yy = (t) => (t ? `, ${t} YoY` : '');
+
     const vol = yoy(c.n, p.n);
-    if (vol != null) {
-      const size = Math.abs(vol) < 0.02 ? 'flat' : Math.abs(vol) < 0.07 ? `slightly ${vol > 0 ? 'up' : 'down'}` : vol > 0 ? 'up' : 'down';
-      items.push(size === 'flat'
-        ? `Sales volume is flat YoY (${pctText(vol)}), with ${num(c.n)} closed sales ${period.phrase}.`
-        : `Sales volume is ${size} ${Math.abs(vol * 100).toFixed(1)}% YoY, with ${num(c.n)} closed sales ${period.phrase}.`);
+    if (c.n) {
+      const read = vol == null ? '' : Math.abs(vol) < 0.02 ? ', about the same pace as last year' : `, indicating ${Math.abs(vol) < 0.07 ? 'slightly ' : ''}${vol > 0 ? 'stronger' : 'softer'} demand than last year`;
+      add('bars', 'Sales', `${b(num(c.n))} homes sold${yy(rel(c.n, p.n))}${read}.`);
     }
-    const avg = yoy(c.avg, p.avg);
-    if (avg != null) {
-      items.push(avg >= 0
-        ? `Average prices remain resilient, up ${(avg * 100).toFixed(1)}% YoY to ${money(c.avg)}.`
-        : `Average prices are down ${Math.abs(avg * 100).toFixed(1)}% YoY to ${money(c.avg)}.`);
+    if (c.avg != null) add('tag', 'Prices', `Average sale price ${b(money(c.avg))}${yy(rel(c.avg, p.avg))}, and median price ${b(money(c.median))}${rel(c.median, p.median) ? `, ${rel(c.median, p.median)}` : ''}.`);
+    if (c.dom != null) {
+      const d = p.dom != null ? c.dom - p.dom : null;
+      // Faster is good news for sellers; colour it green.
+      const vs = d == null ? '' : Math.abs(d) < 0.5 ? ', about the same as last year' : `, ${tone(-yoy(c.dom, p.dom), `${Math.abs(yoy(c.dom, p.dom) * 100).toFixed(1)}%`)} ${d > 0 ? 'slower' : 'faster'} than last year (${days(p.dom)})`;
+      add('bolt', 'Speed', `Homes sold in ${b(days(c.dom))} on average${vs}.`);
     }
-    const med = yoy(c.median, p.median);
-    if (med != null) items.push(`Median sale price is ${money(c.median)}, ${med >= 0 ? 'up' : 'down'} ${Math.abs(med * 100).toFixed(1)}% from ${money(p.median)} a year ago.`);
+    if (HAS_MARKET && c.overList != null) {
+      const read = c.overList >= 0.5 ? 'showing continued buyer competition' : c.overList >= 0.3 ? 'a balanced level of bidding' : 'most homes selling at or below list';
+      add('layers', 'Competition', `${b(share(c.overList))} of homes sold over list price${p.overList != null ? `, ${c.overList >= p.overList ? 'up' : 'down'} ${pt(c.overList, p.overList)} YoY` : ''}, ${read}.`);
+    }
+    if (HAS_LISTINGS && HAS_MARKET) {
+      const inv = inventory(rows, filtered({}, cancels), filtered({}, active));
+      const supMo = inv.supply != null ? `, or ${b(`${inv.supply.toFixed(1)} months`)} of supply${inv.supplyLY != null ? ` (${tone(inv.supply - inv.supplyLY, signed(inv.supply - inv.supplyLY, 1, ' mo.'))} YoY)` : ''}` : '';
+      add('house', 'Inventory', `${b(num(inv.forNow))} active listings${yy(rel(inv.forNow, inv.forLY))}${supMo}.`);
+    }
     const lastFull = [...months].reverse().find((m) => !m.partial);
     if (lastFull && monthRate(lastFull.key) != null) {
       const r = monthRate(lastFull.key), mom = rateMoM(lastFull.key), ly = monthRate(lastFull.prevKey);
-      const dir = (d) => (Math.abs(d) < 0.005 ? 'unchanged' : `${d > 0 ? 'up' : 'down'} ${Math.abs(d).toFixed(2)} pt`);
-      items.push(`The 30-yr mortgage rate averaged ${rate(r)} in ${monName(lastFull.key)}${mom != null ? `, ${dir(mom)} from ${monName(prevMonth(lastFull.key))}` : ''}${ly != null ? ` and ${dir(r - ly)} from a year ago` : ''}.`);
+      const rpt = (d) => (d == null ? '' : tone(d / 100, signed(d, 2, ' pt')));
+      add('percent', 'Mortgage Rate', `30-yr rate averaged ${b(rate(r))} in ${monName(lastFull.key)}${mom != null ? `, ${rpt(mom)} MoM` : ''}${ly != null ? ` and ${rpt(r - ly)} YoY` : ''}.`);
     }
+    if (!items.length) add('sparkle', 'Not enough data', 'Not enough sales in this selection to compare with last year.');
+    $('#insights-sub').textContent = `Key takeaways for ${state.zip || state.city || state.county || 'the Bay Area'} (${period.name.toLowerCase()} vs. same period last year).`;
+    $('#insights').innerHTML = items.map(([ic, title, text]) =>
+      `<li><span class="icon-tile">${icon(ic)}</span><div><span class="ins-title">${title}</span><span class="ins-text">${text}</span></div></li>`).join('');
     const mtd = months.find((m) => m.partial);
-    if (mtd) items.push(`${MON[+mtd.key.slice(5, 7) - 1]} is month-to-date (${monName(mtd.key)} 1–${END_DAY}) and not a full-month total.`);
-    if (!items.length) items.push('Not enough sales in this selection to compare with last year.');
-    $('#insights').innerHTML = items.map((t) => `<li><span class="check">${icon('check')}</span><span>${t}</span></li>`).join('');
+    $('#insights-note').textContent = `${period.name}: ${rangeText(period.cur)} vs. the same dates last year.${mtd ? ` ${monName(mtd.key)} in the table is month-to-date (${monName(mtd.key)} 1–${END_DAY}).` : ''}`;
   }
 
   // ---------- weekly trend: last 12 weeks ----------
@@ -577,7 +719,9 @@
   };
   const NUM_COLS = [
     ['n', 'Sales'], ['nPrior', 'Sales LY'], ['nYoY', 'Volume YoY'], ['avg', 'Avg Price'], ['avgPrior', 'Avg LY'],
-    ['avgYoY', 'Avg YoY'], ['median', 'Median'], ['ppsf', '$/Sqft'],
+    ['avgYoY', 'Avg YoY'], ['median', 'Median'], ['ppsf', '$/Sqft'], ['dom', 'Avg DOM'],
+    ...(HAS_MARKET ? [['overList', 'Over List']] : []),
+    ...(HAS_LISTINGS ? [['cancels', 'Cancelled'], ['active', 'Active']] : []),
   ];
   const TEXT_KEYS = ['zip', 'city', 'county'];
 
@@ -602,6 +746,17 @@
       g[bucket].push(r);
       g.zips.add(r.zip);
     }
+    // Cancelled (this period) and for-sale counts, for rows that also had sales.
+    const geo = (r) => (!state.county || r.county === state.county) && (byCity || !state.city || r.city === state.city);
+    const tally = (list, keep, field) => {
+      for (const r of filtered({ ignoreGeo: true }, list)) {
+        if (!geo(r) || !keep(r)) continue;
+        const g = groups.get(byCity ? `${r.city}|${r.county}` : r.zip);
+        if (g) g[field] = (g[field] ?? 0) + 1;
+      }
+    };
+    tally(cancels, isCur, 'cancels');
+    tally(active, forSale, 'active');
     const q = state.search.toLowerCase();
     const data = [...groups.entries()]
       .map(([key, g]) => {
@@ -612,7 +767,8 @@
           ...id,
           n: c.n, nPrior: p.n, nYoY: ok ? yoy(c.n, p.n) : null,
           avg: c.avg, avgPrior: p.avg, avgYoY: ok ? yoy(c.avg, p.avg) : null,
-          median: c.median, ppsf: c.ppsf,
+          median: c.median, ppsf: c.ppsf, dom: c.dom, overList: c.n >= 3 ? c.overList : null,
+          cancels: g.cancels ?? 0, active: g.active ?? 0,
         };
       })
       .filter((r) => !q || r.city.toLowerCase().includes(q) || (!byCity && r.zip.includes(q)))
@@ -630,7 +786,8 @@
         ${byCity ? `<td>${r.city}</td><td>${r.county}</td><td>${r.zips}</td>` : `<td>${r.zip}</td><td>${r.city}</td><td>${r.county}</td>`}
         <td>${num(r.n)}</td><td>${num(r.nPrior)}</td><td>${pill(r.nYoY)}</td>
         ${cell(r.avg, money)}${cell(r.avgPrior, money)}<td>${pill(r.avgYoY)}</td>
-        ${cell(r.median, money)}${cell(r.ppsf, (v) => `$${num(v)}`)}</tr>`)
+        ${cell(r.median, money)}${cell(r.ppsf, (v) => `$${num(v)}`)}${cell(r.dom, num)}${HAS_MARKET ? cell(r.overList, share) : ''}
+        ${HAS_LISTINGS ? `<td>${num(r.cancels)}</td><td>${num(r.active)}</td>` : ''}</tr>`)
       .join('');
     document.querySelectorAll('#zip-table th').forEach((th) =>
       th.setAttribute('aria-sort', th.dataset.key === state.sortKey ? (state.sortDir > 0 ? 'ascending' : 'descending') : 'none'));
@@ -670,6 +827,8 @@
   // data/history.js is never deployed: build-site.mjs doesn't copy it, and it's only requested when the
   // page is opened from this computer. The math lives in vs-calc.js (unit-tested in test/vs-calc.test.mjs).
   const IS_LOCAL = location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  // Hidden by default even locally; open the dashboard with ?extras to show these two sections.
+  const SHOW_EXTRAS = IS_LOCAL && new URLSearchParams(location.search).has('extras');
   const V = window.VsCalc;
   const hstate = { mode: 'price', home: 'avg', spy: 'price', grain: 'year' };
   // Buyer-owner assumptions, in percent. Defaults: 20% down, Bay Area-ish rent yield, CA Prop 13 tax.
@@ -678,7 +837,7 @@
   try { assume = { ...ASSUME_DEFAULTS, ...JSON.parse(localStorage.getItem('re-market:assume') || '{}') }; } catch { /* storage unavailable */ }
   const saveAssume = () => { try { localStorage.setItem('re-market:assume', JSON.stringify(assume)); } catch { /* ignore */ } };
   let H = null;
-  if (IS_LOCAL) {
+  if (SHOW_EXTRAS) {
     const tag = document.createElement('script');
     tag.src = '../data/history.js';
     tag.onload = () => { H = window.HISTORY_DATA ?? null; renderHistory(); renderRentals(); };
@@ -693,7 +852,7 @@
   const spanText = (ms) => (ms.length === 12 ? 'Full year' : `${MON[+ms[0].slice(5, 7) - 1]}–${MON[+ms.at(-1).slice(5, 7) - 1]}`);
 
   function renderHistory() {
-    if (!IS_LOCAL) return;
+    if (!SHOW_EXTRAS) return;
     $('#history-card').hidden = false;
     const ready = !!(H && H.spy && Object.keys(H.spy).length && V);
     $('#hist-body').hidden = !ready;
@@ -1031,7 +1190,7 @@
   }
 
   function renderRentals() {
-    if (!IS_LOCAL) return;
+    if (!SHOW_EXTRAS) return;
     $('#rent-card').hidden = false;
     const ready = !!(H?.leases?.length && V);
     $('#rent-body').hidden = !ready;
@@ -1201,6 +1360,7 @@
     applyChartDefaults();
     const rows = filtered();
     renderTiles(rows);
+    renderListingTiles(rows, filtered({}, cancels), filtered({}, active));
     renderYearCharts(rows);
     const months = renderMonthTable(rows);
     renderSummary(rows, months);

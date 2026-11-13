@@ -9,10 +9,20 @@ export const BAY_AREA = ['SanFrancisco', 'SanMateo', 'SantaClara', 'Alameda', 'C
 export const MIN_PRICE = 50_000; // drops nominal transfers that aren't market sales
 
 const SELECT = ['ListingKeyNumeric', 'ListingId', 'ClosePrice', 'CloseDate', 'PostalCode', 'City', 'CountyOrParish', 'PropertyType', 'PropertySubType', 'LivingArea'];
+const SALE_TYPES = "('Residential','ResidentialIncome')";
+const LISTING = ['ListingKeyNumeric', 'ListPrice', 'PostalCode', 'City', 'CountyOrParish', 'PropertyType', 'PropertySubType', 'DaysOnMarket', 'StandardStatus'];
+// List prices and market dates: overbidding, price cuts, and rebuilding past inventory from
+// each listing's on-market -> under-contract (or off-market) span.
+const MARKET = ['DaysOnMarket', 'ListPrice', 'OriginalListPrice', 'OnMarketDate', 'PurchaseContractDate'];
 // What each kind of fetch asks for. For leases, ClosePrice is the agreed monthly rent.
+// `date` is the field a month is selected by.
 const KINDS = {
-  sales: { types: "('Residential','ResidentialIncome')", cachePrefix: 'mls', select: SELECT },
-  leases: { types: "('ResidentialLease')", cachePrefix: 'mls-lease', select: [...SELECT, 'ListPrice', 'BedroomsTotal'] },
+  sales: { types: SALE_TYPES, status: "('Closed')", date: 'CloseDate', cachePrefix: 'mls', select: [...SELECT, ...MARKET] },
+  leases: { types: "('ResidentialLease')", status: "('Closed')", date: 'CloseDate', cachePrefix: 'mls-lease', select: [...SELECT, 'ListPrice', 'BedroomsTotal'] },
+  // Listings taken off the market without selling, by the day they came off.
+  cancels: { types: SALE_TYPES, status: "('Canceled','Withdrawn','Expired')", date: 'OffMarketDate', cachePrefix: 'mls-cancel', select: [...LISTING, 'OffMarketDate', 'OnMarketDate', 'OriginalListPrice'] },
+  // Today's inventory: for sale, or under contract and not yet closed. Not date-bound.
+  active: { types: SALE_TYPES, status: "('Active','ActiveUnderContract','Pending')", cachePrefix: 'mls-active', select: [...LISTING, 'OnMarketDate', 'OriginalListPrice', 'PurchaseContractDate'] },
 };
 
 // "SantaClara" -> "Santa Clara", "PortolaValley" -> "Portola Valley"
@@ -56,8 +66,9 @@ function warnIfTokenExpiring(jwt) {
  * - A finished month is reused for `cacheDays`, or `oldCacheDays` once it ended more than 180 days ago
  *   (old months rarely change, so a long history doesn't re-download every week).
  * - The running month is reused only on the day it was fetched.
+ * - With strictFields, a cached month missing a field the kind now selects is re-downloaded.
  */
-export function createMlsClient({ base, token, counties, today, refresh = false, cacheDays = 7, oldCacheDays = 90 }) {
+export function createMlsClient({ base, token, counties, today, refresh = false, cacheDays = 7, oldCacheDays = 90, strictFields = true }) {
   const cacheDir = join(ROOT, 'data', 'raw');
   mkdirSync(cacheDir, { recursive: true });
   let calls = 0;
@@ -78,14 +89,16 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
   }
 
   /**
-   * All closed residential listings closing in [start, end]. The server caps pages at 50 rows and
-   * its nextLink shrinks $top, so we page by key instead: ListingKeyNumeric gt <last seen>.
+   * All listings of `kind` whose date field falls in [start, end] (every current one for 'active').
+   * The server caps pages at 50 rows and its nextLink shrinks $top, so we page by key instead:
+   * ListingKeyNumeric gt <last seen>.
    */
   async function fetchRange(start, end, label, kind = 'sales') {
+    const k = KINDS[kind];
     const filter = [
-      "StandardStatus eq 'Closed'",
-      `CloseDate ge ${start} and CloseDate le ${end}`,
-      `PropertyType in ${KINDS[kind].types}`,
+      `StandardStatus in ${k.status}`,
+      ...(k.date ? [`${k.date} ge ${start} and ${k.date} le ${end}`] : []),
+      `PropertyType in ${k.types}`,
       `CountyOrParish in (${counties.map((c) => `'${c}'`).join(',')})`,
     ].join(' and ');
     const expected = (await get({ $filter: filter, $top: '0', $count: 'true' }))['@odata.count'];
@@ -96,7 +109,7 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
       const page = await get({
         $filter: `${filter} and ListingKeyNumeric gt ${last}`,
         $orderby: 'ListingKeyNumeric',
-        $select: KINDS[kind].select.join(','),
+        $select: k.select.join(','),
         $top: '300',
       });
       if (!page.value?.length) break;
@@ -105,29 +118,47 @@ export function createMlsClient({ base, token, counties, today, refresh = false,
       if (process.stdout.isTTY) process.stdout.write(`\r  ${label}: ${rows.length}/${expected}`);
     }
     if (process.stdout.isTTY) process.stdout.write('\r');
-    console.log(`  ${label}: ${rows.length} closed${rows.length !== expected ? ` (WARNING: server reported ${expected})` : ''}`);
+    console.log(`  ${label}: ${rows.length} ${kind}${rows.length !== expected ? ` (WARNING: server reported ${expected})` : ''}`);
     return rows;
   }
 
-  /** One calendar month ('YYYY-MM') of 'sales' or 'leases', from cache when fresh enough. */
+  const cacheFile = (kind, suffix) => join(cacheDir, `${KINDS[kind].cachePrefix}-${counties.join('_')}-${suffix}.json`);
+  const hasFields = (cached, kind) => !strictFields || KINDS[kind].select.every((f) => cached.select?.includes(f));
+
+  /** One calendar month ('YYYY-MM') of 'sales', 'leases' or 'cancels', from cache when fresh enough. */
   async function fetchMonth(month, kind = 'sales') {
     const monthEnd = isoDate(new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7), 0)));
     const end = monthEnd < today ? monthEnd : today;
-    const file = join(cacheDir, `${KINDS[kind].cachePrefix}-${counties.join('_')}-${month}.json`);
+    const file = cacheFile(kind, month);
     if (!refresh && existsSync(file)) {
       const cached = JSON.parse(readFileSync(file, 'utf8'));
       const ageDays = (Date.now() - statSync(file).mtimeMs) / DAY_MS;
       const isOld = (Date.parse(today) - Date.parse(monthEnd)) / DAY_MS > 180;
       const fresh = end === monthEnd ? ageDays < (isOld ? oldCacheDays : cacheDays) : cached.fetchedOn === today;
-      if (cached.through === end && fresh) {
+      if (cached.through === end && fresh && hasFields(cached, kind)) {
         console.log(`  ${month}: ${cached.rows.length} ${kind} (cached)`);
         return cached.rows;
       }
     }
     const rows = await fetchRange(`${month}-01`, end, kind === 'sales' ? month : `${month} ${kind}`, kind);
-    writeFileSync(file, JSON.stringify({ through: end, fetchedOn: today, rows }));
+    writeFileSync(file, JSON.stringify({ through: end, fetchedOn: today, select: KINDS[kind].select, rows }));
     return rows;
   }
 
-  return { fetchMonth, calls: () => calls };
+  /** Every listing currently for sale or under contract; cached for the day. */
+  async function fetchActive() {
+    const file = cacheFile('active', 'snapshot');
+    if (!refresh && existsSync(file)) {
+      const cached = JSON.parse(readFileSync(file, 'utf8'));
+      if (cached.fetchedOn === today && hasFields(cached, 'active')) {
+        console.log(`  active: ${cached.rows.length} listings (cached)`);
+        return cached.rows;
+      }
+    }
+    const rows = await fetchRange(null, null, 'active listings', 'active');
+    writeFileSync(file, JSON.stringify({ fetchedOn: today, select: KINDS.active.select, rows }));
+    return rows;
+  }
+
+  return { fetchMonth, fetchActive, calls: () => calls };
 }
